@@ -1,0 +1,6 @@
+# Godot cache and imports
+game/.godot/
+# builds go to GitHub Releases
+build/
+*.exe
+*.pck
