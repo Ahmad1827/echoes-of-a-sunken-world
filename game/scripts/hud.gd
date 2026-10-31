@@ -44,16 +44,23 @@ func _draw() -> void:
 	var m = main
 	if m.mode == "title":
 		_title()
+	elif m.mode == "card":
+		_card()
+	elif m.mode == "train_menu":
+		_train_menu()
 	else:
 		_posture_bars()
+		_leg_marks()
+		if m.game_type == "train":
+			_drill_text()
 		_top_bar()
 		_banner()
 		if m.mode == "end":
 			_end()
 	draw_rect(Rect2(0, 0, 1920, BAR), Color.BLACK)
 	draw_rect(Rect2(0, 1080 - BAR, 1920, BAR), Color.BLACK)
-	if m.mode == "title":
-		_t("A / D  move     W / S  guard high · low     J  light     K  heavy (hold to charge)     L  guard · parry     I  thrust     U  kick     SPACE  dash",
+	if m.mode == "title" or m.mode == "card" or m.mode == "train_menu":
+		_t("A / D  move     W / S  guard high · low     J  light     K  heavy     L  guard · parry     I  thrust     U  kick (hold W / S for head / leg kick)     SPACE  dash",
 			Vector2(960, 1080 - BAR * 0.5), 17, Color(INK, 0.45), f_ui)
 	else:
 		_hud_texts()
@@ -65,18 +72,89 @@ func _draw() -> void:
 
 func _title() -> void:
 	var m = main
-	_t("ECHOES OF A SUNKEN WORLD", Vector2(960, 850), 66, Color(INK, 0.95), f_title)
+	_t("ECHOES OF A SUNKEN WORLD", Vector2(960, 800), 62, Color(INK, 0.95), f_title)
 	var items: Array = m.menu_items()
-	var n: int = items.size()
-	for i in n:
-		var x: float = 960.0 + (i - (n - 1) * 0.5) * 300.0
+	var first_row := 5
+	for i in items.size():
+		var row: int = 0 if i < first_row else 1
+		var count: int = first_row if row == 0 else items.size() - first_row
+		var col: int = i if row == 0 else i - first_row
+		var x: float = 960.0 + (col - (count - 1) * 0.5) * (340.0 if row == 0 else 430.0)
+		var y: float = 880.0 if row == 0 else 935.0
 		var sel: bool = i == m.menu_idx
 		var c := Color(INK, 1.0 if sel else 0.42)
-		_t(items[i], Vector2(x, 945), 25, c, f_ui)
+		_t(items[i], Vector2(x, y), 24, c, f_ui)
 		if sel:
-			var w: float = f_ui.get_string_size(items[i], HORIZONTAL_ALIGNMENT_LEFT, -1, 25).x * 0.5 + 22.0
-			_diamond(Vector2(x - w, 946), 4.0, c)
-			_diamond(Vector2(x + w, 946), 4.0, c)
+			var w: float = f_ui.get_string_size(items[i], HORIZONTAL_ALIGNMENT_LEFT, -1, 24).x * 0.5 + 22.0
+			_diamond(Vector2(x - w, y + 1.0), 4.0, c)
+			_diamond(Vector2(x + w, y + 1.0), 4.0, c)
+	var hint := ""
+	match m.TITLE_MENU[m.menu_idx]:
+		"opponent":
+			hint = m.opponent()["blurb"] + "   Up / down to change."
+		"stage", "difficulty":
+			hint = "Up / down to change."
+		"story":
+			var done: int = m.progress["chapter"]
+			hint = "Chapter %d of %d." % [mini(done + 1, Builds.STORY.size()), Builds.STORY.size()]
+		"train":
+			hint = "Drills raise Maren's skills for good."
+	_t(hint, Vector2(960, 978), 18, Color(INK, 0.55), f_ui)
+
+
+## A story page: dark over the arena, text centred.
+func _card() -> void:
+	var m = main
+	draw_rect(Rect2(0, 0, 1920, 1080), Color(0, 0, 0, 0.72))
+	_t(m.card["title"], Vector2(960, 340), 46, INK, f_title)
+	var lines: Array = m.card["lines"]
+	for i in lines.size():
+		_t(lines[i], Vector2(960, 450 + i * 56), 28, Color(INK, 0.85), f_ui)
+	if m.card["next"] == "fight":
+		_t("Opponent: " + String(m.opponent()["name"]).capitalize() + "  ·  " + String(m.opponent()["blurb"]), Vector2(960, 690), 20, Color(INK, 0.55), f_ui)
+	_t("press to continue", Vector2(960, 790), 18, Color(INK, 0.45), f_wide)
+
+
+func _train_menu() -> void:
+	var m = main
+	draw_rect(Rect2(0, 0, 1920, 1080), Color(0, 0, 0, 0.72))
+	_t("THE TRAINING GROUND", Vector2(960, 200), 46, INK, f_title)
+	var items: Array = m.menu_items()
+	for i in items.size():
+		var id: String = items[i]
+		var sel: bool = i == m.menu_idx
+		var c := Color(INK, 1.0 if sel else 0.5)
+		var y: float = 310.0 + i * 92.0
+		if id == "back":
+			_t("Back", Vector2(960, y), 26, c, f_ui)
+			continue
+		var info: Dictionary = Builds.SKILL_INFO[id]
+		var lvl: int = m.progress["levels"][id]
+		_t(info["title"], Vector2(600, y), 28, c, f_wide, HORIZONTAL_ALIGNMENT_RIGHT)
+		for k in Builds.MAX_LEVEL:
+			var col := Color(0.82, 0.64, 0.45, 1.0 if sel else 0.7) if k < lvl else Color(INK, 0.18)
+			_diamond(Vector2(640.0 + k * 26.0, y + 1.0), 7.0, col)
+		var goal: String = "Mastered" if lvl >= Builds.MAX_LEVEL else "Next rank: " + String(info["goal"]) % Builds.drill_goal(id, lvl)
+		_t(info["effect"], Vector2(800, y - 14.0), 20, c, f_ui, HORIZONTAL_ALIGNMENT_LEFT)
+		_t(goal, Vector2(800, y + 16.0), 18, Color(c, c.a * 0.75), f_ui, HORIZONTAL_ALIGNMENT_LEFT)
+
+
+func _drill_text() -> void:
+	var m = main
+	var info: Dictionary = Builds.SKILL_INFO[m.drill]
+	_t("%s  ·  %s  ·  %d / %d" % [info["title"], String(info["goal"]) % m.drill_goal, m.drill_count, m.drill_goal], Vector2(960, 120), 24, Color(INK, 0.9), f_wide)
+
+
+## A mark over a fighter's head while a leg is wounded: the next leg kick sweeps him.
+func _leg_marks() -> void:
+	var m = main
+	for f: Fighter in m.fighters:
+		if f.leg_wound < 0.05 or f.state == "dead" or f.state == "dying":
+			continue
+		var p: Vector2 = m.world_to_screen(f.rig.head + Vector2(0, -52))
+		for i in int(Fighter.SWEEP_AT) - 1:
+			var filled: float = clampf(f.leg_wound - i, 0.0, 1.0)
+			_diamond(p + Vector2((i - 0.5) * 22.0, 0), 6.0, Color(1.0, 0.5, 0.25, 0.2 + 0.8 * filled))
 
 
 func _diamond(c: Vector2, r: float, col: Color) -> void:
@@ -171,7 +249,7 @@ func _controls() -> void:
 		["heavy cut — hold to charge", "K   or   G", "numpad 2", "Y  /  △"],
 		["guard  ·  tap to parry", "L   or   H", "numpad 3", "RB  /  R1"],
 		["thrust", "I   or   T", "numpad 5", "B  /  ○"],
-		["kick — breaks a guard", "U   or   R", "numpad 4", "LB  /  L1"],
+		["kick — hold up: head · down: leg", "U   or   R", "numpad 4", "LB  /  L1"],
 		["dash  (with or without a direction)", "SPACE", "numpad 0", "A  /  ✕"],
 	]
 	for r in rows.size():
@@ -188,7 +266,8 @@ func _controls() -> void:
 		"Blocking costs posture. When it breaks you are defenceless and blows land harder.",
 		"Attacks and dashes cost stamina. Exhausted, you move and strike slower.",
 		"Heads bleed more than arms. A cut leg leaves you limping. Press guard during a heavy wind-up to feint.",
+		"Maren's legs win duels. Two leg kicks sweep a man down; a cut right after any kick lands harder.",
 	]
 	for i in notes.size():
-		_t(notes[i], Vector2(960, 720 + i * 38), 21, Color(INK, 0.62), f_ui)
+		_t(notes[i], Vector2(960, 700 + i * 36), 21, Color(INK, 0.62), f_ui)
 	_t("press any key to return", Vector2(960, 950), 18, Color(INK, 0.4), f_wide)

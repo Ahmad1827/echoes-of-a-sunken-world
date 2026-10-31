@@ -1,6 +1,6 @@
 # Echoes of a Sunken World
 
-A silhouette sword duel built with Godot 4.7. Two robed fighters, two stages: the Hollow Gate (a ribbed cavern with a portal) and the Dune Monolith (a desert under a giant screen).
+A silhouette sword duel built with Godot 4.7. Maren, a swordswoman who fights with her legs as much as her blade, against five men with different bodies, swords and styles. Life-size human shadows on two stages: the Hollow Gate (a ribbed cavern with a portal) and the Dune Monolith (a desert under a giant screen).
 
 ## Play
 
@@ -27,13 +27,31 @@ How the fight works:
 - **Wounds.** Hits are detected on the actual blade. Head cuts deal the most damage and arm cuts the least, and a cut leg makes you limp.
 - **Feints and charges.** Press guard during a heavy's wind-up to feint it. Hold heavy to charge it.
 
+## Modes
+
+- **Story.** Five chapters, one man each. Your progress is saved.
+- **Casual Duel.** Pick any of the men, the stage and the difficulty on the title screen.
+- **Duel a Friend.** Player two plays the chosen man. Trained ranks don't count here.
+- **Train.** Drills against a sparring partner raise Blade, Kick, Footwork, Guard and Vigor up to rank V, for good.
+
+## Kicks
+
+Kicks are Maren's main weapon, and they follow the guard line you hold:
+
+- **Leg kick (hold down).** Slows him, and a second within about four seconds sweeps him down for a long opening. A mark over his head shows the leg is wounded. Only a low guard stops it.
+- **Head kick (hold up).** Big damage and stun if it reaches the head. Only a high guard stops it.
+- **Push kick (no direction).** Shoves through any guard and wrecks posture.
+
+A cut straight after any kick lands 30% harder. The men only have a weak push kick.
+
 ## Edit
 
 Open this `game/` folder in the [Godot 4.7 editor](https://godotengine.org/download) and press F5.
 
 | File | What it controls |
 | --- | --- |
-| `scripts/rig.gd` | Skeleton, IK, foot planting, cloth (robe, hood, sash, sleeves), ragdoll |
+| `scripts/rig.gd` | Skeleton, IK, foot planting, cloth (ponytail, hip wrap), ragdoll, and the anatomical silhouette (`TORSO_P`, `THIGH_P`, `HEAD`, ...; 1 unit = 1 cm) |
+| `scripts/builds.gd` | Every fighter's body, sword, stats and AI; story text; training drills; saved progress |
 | `scripts/fighter.gd` | States, move timings (`MOVES`) and every key pose (`GUARD`, `BLOCK`, `ATTACKS`, ...) |
 | `scripts/combat.gd` | Blade hit detection, parry, block, posture, clashes |
 | `scripts/ai.gd` | Opponent behaviour |
@@ -59,6 +77,6 @@ This runs an AI-vs-AI duel and saves screenshots:
 godot --path game -- --autotest --stage=0 --frames=1200 --every=120 --shots=/some/folder
 ```
 
-Add `--headless` and drop `--shots` to get only the combat event counts, which is quick.
+Add `--headless` and drop `--shots` to get only the combat event counts, which is quick. `--opp=0..4` picks the man, and `--game=story` or `--game=train` runs those modes (tests use a separate save file). `--dump=/some/file.json` writes every fighter's silhouette in several poses.
 
 The font is Cormorant Garamond under the SIL Open Font License (`fonts/OFL.txt`).

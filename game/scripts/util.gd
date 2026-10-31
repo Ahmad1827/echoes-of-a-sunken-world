@@ -64,17 +64,6 @@ static func circle(c: Vector2, r: float, n: int = 14) -> PackedVector2Array:
 	return pts
 
 
-static func push_out(q: Vector2, a: Vector2, b: Vector2, r: float) -> Vector2:
-	var ab: Vector2 = b - a
-	var t: float = clampf((q - a).dot(ab) / maxf(ab.length_squared(), 0.0001), 0.0, 1.0)
-	var c: Vector2 = a + ab * t
-	var d: Vector2 = q - c
-	var l: float = d.length()
-	if l < r and l > 0.0001:
-		return c + d / l * r
-	return q
-
-
 ## Draws convex polygons as a single triangle batch.
 ## `proj` remaps every point (used for cast shadows); `shade` gives a per-vertex color.
 static func draw_polys(ci: CanvasItem, polys: Array, color: Color, offset: Vector2 = Vector2.ZERO,

@@ -31,7 +31,17 @@ var sfx: Sfx
 var fighters: Array = []
 var brains: Array = []
 var mode := "title"
+## What the current duel counts as: "casual", "friend", "story" or "train".
+var game_type := "casual"
 var vs_ai := true
+var opp_idx := 0
+var progress := {}
+var save_path := "user://progress.cfg"
+var chapter := 0
+var card: Dictionary = {}
+var drill := ""
+var drill_count := 0
+var drill_goal := 0
 var difficulty := 1
 var round_no := 0
 var round_time := 99.0
@@ -67,6 +77,7 @@ var shot_every := 0
 var frame := 0
 var stats := {}
 var title_test := false
+var auto_game := "casual"
 
 
 func _ready() -> void:
@@ -85,6 +96,20 @@ func _ready() -> void:
 			shot_every = int(a.get_slice("=", 1))
 		elif a == "--title":
 			title_test = true
+		elif a.begins_with("--game="):
+			auto_game = a.get_slice("=", 1)
+		elif a.begins_with("--opp="):
+			opp_idx = int(a.get_slice("=", 1))
+		elif a.begins_with("--dump="):
+			_dump_bodies(a.get_slice("=", 1))
+			set_physics_process(false)
+			get_tree().quit()
+			return
+	# test runs never touch the player's real save
+	if autotest:
+		save_path = "user://autotest_progress.cfg"
+		DirAccess.remove_absolute(save_path)
+	progress = Builds.load_progress(save_path)
 	sfx = Sfx.new()
 	add_child(sfx)
 	stages = [StageHollow.new(), StageDune.new()]
@@ -121,7 +146,13 @@ func _ready() -> void:
 
 	if autotest and not title_test:
 		vs_ai = true
-		_start_match()
+		match auto_game:
+			"story":
+				_begin_story()
+			"train":
+				_start_drill("kick")
+			_:
+				_start_match()
 	else:
 		_to_title()
 
@@ -188,19 +219,42 @@ func _build_stage(i: int) -> void:
 	sfx.ambience(stage.ambience)
 
 
+func opponent() -> Dictionary:
+	return Builds.MEN[opp_idx]
+
+
+## The hero's trained ranks count everywhere except a duel between two players.
+func _apply_builds() -> void:
+	var levels: Dictionary = progress["levels"] if game_type != "friend" and mode != "title" else {}
+	var hero_stats: Dictionary = Builds.hero_stats(levels)
+	hero_stats["kick_lunge"] = 3.4
+	fighters[0].apply_build(Builds.HERO, hero_stats)
+	var man: Dictionary = opponent()
+	fighters[1].apply_build(man, (man["stats"] as Dictionary).duplicate())
+	for i in 2:
+		var ai: Dictionary = Builds.HERO["ai"] if i == 0 else man["ai"]
+		var base: float = 0.55 if mode == "title" else SKILL[difficulty]
+		if autotest:
+			base = 0.7
+		if game_type == "story" and i == 1:
+			base += chapter * 0.025
+		if game_type == "train" and i == 1:
+			base = 0.35 + 0.08 * int(progress["levels"].get(drill, 0))
+		brains[i].skill = clampf(base + float(ai["skill"]), 0.1, 0.97)
+		brains[i].aggr = ai["aggr"]
+		brains[i].kick_rate = ai["kick"]
+		brains[i].parry_bias = ai["parry"]
+
+
 func _place() -> void:
+	_apply_builds()
 	var c: float = stage.center_x
 	fighters[0].setup(0, c - 270.0, stage.ground, 1.0)
 	fighters[1].setup(1, c + 270.0, stage.ground, -1.0)
 	for f: Fighter in fighters:
 		f.rig.wind = stage.wind
 		f.rig.water = stage.water
-		f.lethal = mode != "title"
-	for i in 2:
-		brains[i].skill = 0.55 if mode == "title" else SKILL[difficulty]
-	if autotest:
-		brains[0].skill = 0.7
-		brains[1].skill = 0.7
+		f.lethal = mode != "title" and game_type != "train"
 	cam_x = c
 	fx.clear()
 	ts_slow = 1.0
@@ -211,20 +265,53 @@ func _place() -> void:
 
 
 func names() -> Array:
-	return ["THE WANDERER", "THE SHADOW" if vs_ai else "THE RONIN"]
+	return [Builds.HERO["name"], opponent()["name"]]
+
+
+## Stable ids for the title menu; the labels come from menu_items.
+const TITLE_MENU := ["story", "casual", "friend", "train", "controls", "opponent", "stage", "difficulty", "leave"]
 
 
 func menu_items() -> Array:
 	if mode == "title":
-		return ["Duel the Shadow", "Duel a Friend", "Stage: " + stage.title.capitalize(),
-			"Difficulty: " + DIFFICULTY[difficulty].capitalize(), "The Way of the Blade", "Leave"]
+		var out: Array = []
+		for id: String in TITLE_MENU:
+			match id:
+				"story":
+					out.append("Story")
+				"casual":
+					out.append("Casual Duel")
+				"friend":
+					out.append("Duel a Friend")
+				"train":
+					out.append("Train")
+				"controls":
+					out.append("The Way of the Blade")
+				"opponent":
+					out.append("Opponent: " + String(opponent()["name"]).capitalize())
+				"stage":
+					out.append("Stage: " + stage.title.capitalize())
+				"difficulty":
+					out.append("Difficulty: " + DIFFICULTY[difficulty].capitalize())
+				"leave":
+					out.append("Leave")
+		return out
+	if mode == "train_menu":
+		var rows: Array = []
+		for sk: String in Builds.SKILLS:
+			rows.append(sk)
+		rows.append("back")
+		return rows
 	if paused:
 		return ["Resume", "The Way of the Blade", "Abandon the duel"]
+	if game_type == "story":
+		return ["Fight again", "Return"]
 	return ["Duel again", "Return"]
 
 
 func _to_title() -> void:
 	mode = "title"
+	game_type = "casual"
 	paused = false
 	menu_idx = 0
 	banner = {}
@@ -328,17 +415,27 @@ func _menu(m: Dictionary) -> void:
 		if m["any"]:
 			show_controls = false
 		return
+	if mode == "card":
+		if m["ok"]:
+			_card_ok()
+		elif m["back"]:
+			_to_title()
+		return
 	var in_fight: bool = mode in ["intro", "fight", "ko"]
 	if in_fight and not paused:
 		if m["pause"]:
 			paused = true
 			menu_idx = 0
 		return
-	if not (mode == "title" or mode == "end" or paused):
+	if not (mode == "title" or mode == "end" or mode == "train_menu" or paused):
+		return
+	if mode == "train_menu" and m["back"]:
+		_to_title()
 		return
 	var items: Array = menu_items()
-	var prev_key: String = "up" if paused else "left"
-	var next_key: String = "down" if paused else "right"
+	var vertical: bool = paused or mode == "train_menu"
+	var prev_key: String = "up" if vertical else "left"
+	var next_key: String = "down" if vertical else "right"
 	if m[prev_key]:
 		menu_idx = (menu_idx - 1 + items.size()) % items.size()
 	if m[next_key]:
@@ -353,30 +450,47 @@ func _menu(m: Dictionary) -> void:
 
 
 func _title_adjust(d: int) -> void:
-	if menu_idx == 2:
-		_build_stage((stage_idx + d + stages.size()) % stages.size())
-		_place()
-	elif menu_idx == 3:
-		difficulty = clampi(difficulty + d, 0, 2)
+	match TITLE_MENU[menu_idx]:
+		"opponent":
+			opp_idx = (opp_idx + d + Builds.MEN.size()) % Builds.MEN.size()
+			_place()
+		"stage":
+			_build_stage((stage_idx + d + stages.size()) % stages.size())
+			_place()
+		"difficulty":
+			difficulty = clampi(difficulty + d, 0, 2)
 
 
 func _menu_ok() -> void:
 	if mode == "title":
-		match menu_idx:
-			0:
+		match TITLE_MENU[menu_idx]:
+			"story":
+				_begin_story()
+			"casual":
 				vs_ai = true
+				game_type = "casual"
 				_start_match()
-			1:
+			"friend":
 				vs_ai = false
+				game_type = "friend"
 				_start_match()
-			2:
+			"train":
+				mode = "train_menu"
+				menu_idx = 0
+			"opponent", "stage":
 				_title_adjust(1)
-			3:
+			"difficulty":
 				difficulty = (difficulty + 1) % 3
-			4:
+			"controls":
 				show_controls = true
-			5:
+			"leave":
 				get_tree().quit()
+	elif mode == "train_menu":
+		var id: String = menu_items()[menu_idx]
+		if id == "back":
+			_to_title()
+		elif int(progress["levels"][id]) < Builds.MAX_LEVEL:
+			_start_drill(id)
 	elif paused:
 		match menu_idx:
 			0:
@@ -390,6 +504,97 @@ func _menu_ok() -> void:
 			_start_match()
 		else:
 			_to_title()
+
+
+# ---------------------------------------------------------------- story and training
+
+func _begin_story() -> void:
+	vs_ai = true
+	game_type = "story"
+	chapter = int(progress["chapter"])
+	if chapter >= Builds.STORY.size():
+		chapter = 0
+	_show_chapter()
+
+
+func _show_chapter() -> void:
+	var ch: Dictionary = Builds.STORY[chapter]
+	for i in Builds.MEN.size():
+		if Builds.MEN[i]["id"] == ch["opp"]:
+			opp_idx = i
+	_build_stage(ch["stage"])
+	card = {"title": ch["title"], "lines": ch["text"], "next": "fight"}
+	mode = "card"
+	timer = 0.0
+	banner = {}
+	_place()
+
+
+func _card_ok() -> void:
+	if card["next"] == "fight":
+		_start_match()
+	else:
+		_to_title()
+
+
+func _story_won() -> void:
+	chapter += 1
+	progress["chapter"] = maxi(int(progress["chapter"]), chapter)
+	Builds.save_progress(save_path, progress)
+	if chapter >= Builds.STORY.size():
+		card = {"title": "THE WATER STILLS", "lines": Builds.STORY_END, "next": "title"}
+		mode = "card"
+		timer = 0.0
+		banner = {}
+		print("STORY COMPLETE")
+	else:
+		_show_chapter()
+
+
+## A drill is a non-lethal spar against a partner that gets better as the rank climbs.
+func _start_drill(skill: String) -> void:
+	vs_ai = true
+	game_type = "train"
+	drill = skill
+	drill_count = 0
+	drill_goal = Builds.drill_goal(skill, int(progress["levels"][skill]))
+	opp_idx = 0
+	_start_match()
+	round_time = 75.0
+
+
+func _drill_event(e: Dictionary) -> void:
+	var counted := false
+	match drill:
+		"blade":
+			counted = e["t"] == "hit" and e["victim"] == 1
+		"kick":
+			counted = e["t"] == "kick" and e["id"] == 0 and not e["blocked"]
+		"footwork":
+			counted = e["t"] == "dash" and e["id"] == 0 and fighters[1].state == "attack" and fighters[1].phase == "startup"
+		"guard":
+			counted = e["t"] == "parry" and e["by"] == 0
+		"vigor":
+			counted = (e["t"] == "sweep" or e["t"] == "break") and e["victim"] == 1
+	if not counted:
+		return
+	drill_count += 1
+	if drill_count >= drill_goal:
+		_end_drill(true)
+
+
+func _end_drill(passed: bool) -> void:
+	mode = "drill_done"
+	timer = 170.0
+	var info: Dictionary = Builds.SKILL_INFO[drill]
+	if passed:
+		progress["levels"][drill] = int(progress["levels"][drill]) + 1
+		Builds.save_progress(save_path, progress)
+		sfx.play("gong", -4.0)
+		banner = {"text": "%s RISES TO %s" % [info["title"], ROMAN[int(progress["levels"][drill])]], "life": 170.0, "max": 170.0, "size": 46}
+	else:
+		banner = {"text": "NOT YET", "sub": "TIME", "life": 170.0, "max": 170.0, "size": 46}
+	print("DRILL %s passed=%s count=%d/%d" % [drill, passed, drill_count, drill_goal])
 
 
 # ---------------------------------------------------------------- loop
@@ -414,14 +619,14 @@ func _physics_process(_delta: float) -> void:
 		hitstop -= 1.0
 		fts = 0.0
 
-	var live: bool = mode == "fight" or mode == "title"
+	var live: bool = mode == "fight" or mode == "title" or mode == "card" or mode == "train_menu"
 	for i in 2:
 		var f: Fighter = fighters[i]
 		if not live:
 			for k: String in f.input:
 				f.input[k] = false
 			continue
-		if mode == "title" or autotest or (vs_ai and i == 1):
+		if mode != "fight" or autotest or (vs_ai and i == 1):
 			brains[i].think(fts)
 		else:
 			_player_input(i, f)
@@ -475,6 +680,8 @@ func _separate() -> void:
 func _on_event(e: Dictionary) -> void:
 	var pos: Vector2 = e.get("pos", Vector2.ZERO)
 	stats[e["t"]] = int(stats.get(e["t"], 0)) + 1
+	if game_type == "train" and mode == "fight":
+		_drill_event(e)
 	match e["t"]:
 		"step":
 			sfx.play(stage.step_sound, -16.0, randf_range(0.85, 1.15))
@@ -487,6 +694,7 @@ func _on_event(e: Dictionary) -> void:
 			if e["kind"] != "kick":
 				sfx.play(nm, -3.0, randf_range(0.92, 1.08))
 			else:
+				stats["kick_try"] = int(stats.get("kick_try", 0)) + 1
 				sfx.play("dash", -4.0, 0.8)
 		"feint":
 			sfx.play("dash", -10.0, 1.3)
@@ -533,10 +741,17 @@ func _on_event(e: Dictionary) -> void:
 			if e["counter"]:
 				_banner_small("COUNTER")
 		"kick":
-			sfx.play("kick", 0.0)
+			sfx.play("block" if e["blocked"] else "kick", 0.0)
 			fx.dust(pos, 6, stage.dust_color, 1.0)
 			hitstop = 5.0
 			shake = 6.0
+		"sweep":
+			sfx.play("fall", 0.0)
+			fx.dust(Vector2(pos.x, stage.ground), 14, stage.dust_color, 2.0)
+			hitstop = 10.0
+			shake = 8.0
+			zoom_punch = 0.06
+			_banner_small("SWEPT")
 		"fall":
 			sfx.play("fall", -2.0)
 			fx.dust(Vector2(pos.x, stage.ground), 16, stage.dust_color, 2.4)
@@ -595,9 +810,31 @@ func _flow(ts: float) -> void:
 						f.enter("victory")
 			if timer <= 0.0:
 				_after_round()
+		"drill_done":
+			timer -= 1.0
+			if timer <= 0.0:
+				if autotest:
+					print("EVENTS ", stats)
+					get_tree().quit()
+					return
+				mode = "train_menu"
+				menu_idx = 0
+				_place()
+		"card":
+			timer += 1.0
+			if autotest and timer > 30.0:
+				_card_ok()
+		"end":
+			if autotest:
+				if game_type == "story":
+					print("STORY chapter %d lost, retrying" % chapter)
+				_start_match()
 
 
 func _timeout() -> void:
+	if game_type == "train":
+		_end_drill(false)
+		return
 	var a: Fighter = fighters[0]
 	var b: Fighter = fighters[1]
 	mode = "ko"
@@ -614,6 +851,9 @@ func _after_round() -> void:
 	desat_target = 0.0
 	for f: Fighter in fighters:
 		if f.wins >= 2:
+			if game_type == "story" and f.id == 0:
+				_story_won()
+				return
 			mode = "end"
 			menu_idx = 0
 			banner = {"text": names()[f.id] + " PREVAILS", "life": 1e9, "max": 1e9, "size": 50, "y": 880.0}
@@ -679,6 +919,40 @@ func _autotest_tick() -> void:
 		if shot_dir != "":
 			_shot("final")
 		get_tree().quit()
+
+
+## Writes every build's silhouette in several poses to a JSON file, for checking the art outside the game.
+func _dump_bodies(path: String) -> void:
+	var poses := {"guard": Fighter.GUARD[1], "heavy": Fighter.ATTACKS["heavy"][0][1],
+		"low_kick": Fighter.ATTACKS["kick"][2][1], "high_kick": Fighter.ATTACKS["kick"][0][1]}
+	var builds: Array = [Builds.HERO]
+	builds.append_array(Builds.MEN)
+	var out := {}
+	for b: Dictionary in builds:
+		var entry := {}
+		for pose_name: String in poses:
+			var r := Rig.new()
+			r.apply_build(b)
+			r.reset(0.0, 0.0, 1.0)
+			r.set_pose(poses[pose_name], 12.0, 1.0)
+			for i in 300:
+				r.update(1.0, 0.0)
+			var sh: Dictionary = r.build_shapes()
+			entry[pose_name] = {"back": _polys_json(sh["back"]), "main": _polys_json(sh["main"]), "blade": _polys_json(r.blade_polys())}
+		out[b["id"]] = entry
+	var fa := FileAccess.open(path, FileAccess.WRITE)
+	fa.store_string(JSON.stringify(out))
+	fa.close()
+
+
+func _polys_json(polys: Array) -> Array:
+	var out: Array = []
+	for poly: PackedVector2Array in polys:
+		var pts: Array = []
+		for q: Vector2 in poly:
+			pts.append([q.x, q.y])
+		out.append(pts)
+	return out
 
 
 func _shot(name: String) -> void:

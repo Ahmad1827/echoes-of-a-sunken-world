@@ -41,8 +41,7 @@ class ShadowView extends Node2D:
 			var sh: Dictionary = f.shapes
 			if sh.is_empty():
 				continue
-			U.draw_polys(self, sh["back"], Color.WHITE, Vector2.ZERO, proj, shade)
-			U.draw_polys(self, sh["main"], Color.WHITE, Vector2.ZERO, proj, shade)
+			U.draw_polys(self, sh["shadow"], Color.WHITE, Vector2.ZERO, proj, shade)
 			if not stage.glow:
 				U.draw_polys(self, f.rig.blade_polys(), Color.WHITE, Vector2.ZERO, proj, shade)
 
@@ -61,7 +60,7 @@ class ContactView extends Node2D:
 			if r.ragdoll:
 				pts = [r.ft_f, r.ft_b, r.kn_f, r.kn_b, r.pelvis, r.chest, r.head, r.hand_f]
 			for q: Vector2 in pts:
-				var h: float = g - q.y - 4.0
+				var h: float = g - q.y - Rig.ANKLE * r.k
 				var a: float = clampf(1.0 - h / 34.0, 0.0, 1.0) * 0.6
 				if a > 0.01:
 					draw_texture_rect(blob, Rect2(q.x - 28.0, g - 5.0, 56.0, 10.0), false, Color(0, 0, 0, a))

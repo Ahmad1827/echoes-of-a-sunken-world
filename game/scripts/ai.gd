@@ -6,6 +6,10 @@ extends RefCounted
 var me: Fighter
 var op: Fighter
 var skill := 0.6
+## Temperament from the build: how often it attacks, kicks and tries to parry.
+var aggr := 0.6
+var kick_rate := 0.2
+var parry_bias := 1.0
 
 var cd := 0.0
 var line_hold := Fighter.MID
@@ -23,6 +27,13 @@ var plan := ""
 var plan_line := Fighter.MID
 var parry_lead := 4.0
 var feint_armed := false
+## Set after dashing in: kick as soon as the dash ends.
+var dash_kick := false
+
+
+## How far this fighter's blade reaches with a step, which sets all of its spacing.
+func _reach() -> float:
+	return 87.0 + me.rig.blade_len
 
 
 func think(ts: float) -> void:
@@ -35,6 +46,7 @@ func think(ts: float) -> void:
 	if ts <= 0.0 or me.state == "dead" or me.state == "dying":
 		return
 	var dist: float = absf(op.x - me.x)
+	var reach: float = _reach()
 	var fwd: String = "right" if op.x > me.x else "left"
 	var back: String = "left" if fwd == "right" else "right"
 	cd -= ts
@@ -80,13 +92,20 @@ func think(ts: float) -> void:
 	if not me.is_free():
 		return
 
-	var open: bool = op.state in ["recoil", "broken", "hurt", "kicked"] or (op.state == "attack" and op.phase == "recovery")
+	if dash_kick:
+		dash_kick = false
+		if dist < 175.0:
+			_kick_choice()
+			cd = randf_range(14.0, 34.0)
+			return
+
+	var open: bool = op.state in ["recoil", "broken", "hurt", "kicked", "swept"] or (op.state == "attack" and op.phase == "recovery")
 	if open:
-		if dist < 195.0 and cd <= 0.0:
+		if dist < reach - 10.0 and cd <= 0.0:
 			_set_line(randi() % 3)
-			me.press("heavy" if op.state == "broken" else "light")
+			me.press("heavy" if op.state == "broken" or op.state == "swept" else "light")
 			cd = 18.0
-		elif dist < 330.0:
+		elif dist < reach + 125.0:
 			inp[fwd] = true
 		return
 
@@ -94,7 +113,10 @@ func think(ts: float) -> void:
 		spacing = 300.0
 	space_timer -= ts
 	if space_timer <= 0.0:
-		spacing = randf_range(200.0, 290.0)
+		spacing = randf_range(reach - 5.0, reach + 85.0)
+		# a kicker fights inside the sword, where the legs can reach
+		if kick_rate >= 0.5:
+			spacing = randf_range(120.0, 150.0)
 		space_timer = randf_range(40.0, 120.0)
 	if dist > spacing + 15.0:
 		inp[fwd] = true
@@ -104,7 +126,7 @@ func think(ts: float) -> void:
 	if guard_t > 0.0:
 		guard_t -= ts
 		inp["block"] = true
-	elif dist < 250.0 and randf() < 0.008 * (1.0 + (1.0 - me.hp / 100.0) * 2.0):
+	elif dist < reach + 45.0 and randf() < 0.008 * (1.0 + (1.0 - me.hp / 100.0) * 2.0):
 		guard_t = randf_range(30.0, 100.0)
 
 	line_timer -= ts
@@ -116,9 +138,18 @@ func think(ts: float) -> void:
 
 	if cd <= 0.0 and me.stamina > 25.0:
 		if turtle > 40.0 and dist < 135.0:
+			_set_line(Fighter.MID)
 			me.press("kick")
 			cd = 40.0
-		elif dist < 205.0 and randf() < 0.06 + 0.05 * skill:
+		elif dist < 160.0 and randf() < 0.14 * kick_rate:
+			_kick_choice()
+			cd = randf_range(14.0, 34.0)
+		elif kick_rate >= 0.5 and dist >= 160.0 and dist < 270.0 and me.stamina > 45.0 and randf() < 0.05 * kick_rate:
+			inp[fwd] = true
+			dash_kick = true
+			me.press("dash")
+			cd = 30.0
+		elif dist < reach and randf() < (0.06 + 0.05 * skill) * aggr / 0.6 * (1.0 - kick_rate * 0.7):
 			var r := randf()
 			if r < 0.5:
 				me.press("light")
@@ -131,12 +162,24 @@ func think(ts: float) -> void:
 				me.press("thrust")
 			elif dist < 140.0:
 				me.press("kick")
-			cd = randf_range(25.0, 70.0) * (1.3 - skill)
-		elif dist > 200.0 and dist < 238.0 and randf() < 0.02:
+			cd = randf_range(25.0, 70.0) * (1.3 - skill) * (1.45 - 0.75 * aggr)
+		elif dist > reach - 5.0 and dist < reach + 33.0 and randf() < 0.02:
 			me.press("thrust")
 			cd = randf_range(30.0, 60.0)
-		elif turtle > 25.0 and dist > 135.0 and dist < 260.0:
+		elif turtle > 25.0 and dist > 135.0 and dist < reach + 55.0:
 			inp[fwd] = true
+
+
+## Mostly the leg, finishing a wounded one; the head when the guard is low.
+func _kick_choice() -> void:
+	var r := randf()
+	if op.leg_wound >= 1.0 or r < 0.6:
+		_set_line(Fighter.LOW if op.line != Fighter.LOW else Fighter.HIGH)
+	elif r < 0.8:
+		_set_line(Fighter.HIGH)
+	else:
+		_set_line(Fighter.MID)
+	me.press("kick")
 
 
 func _decide(dist: float) -> void:
@@ -145,9 +188,9 @@ func _decide(dist: float) -> void:
 	var r := randf()
 	match op.move_name:
 		"kick":
-			plan = "interrupt" if r < 0.5 else "evade"
+			plan = "interrupt" if r < 0.35 else ("evade" if r < 0.6 else "block")
 		"heavy":
-			if r < 0.35 * skill + 0.1:
+			if r < (0.35 * skill + 0.1) * parry_bias:
 				plan = "parry"
 			elif r < 0.6:
 				plan = "block"
@@ -156,7 +199,7 @@ func _decide(dist: float) -> void:
 			else:
 				plan = "interrupt"
 		_:
-			if r < 0.45 * skill:
+			if r < 0.45 * skill * parry_bias:
 				plan = "parry"
 			elif r < 0.86:
 				plan = "block"
@@ -182,7 +225,7 @@ func _exec(dist: float, fwd: String, back: String) -> void:
 				me.press("dash")
 			plan = "block"
 		"interrupt":
-			if dist < 200.0 and me.is_free():
+			if dist < _reach() - 5.0 and me.is_free():
 				_set_line(randi() % 3)
 				me.press("light")
 			plan = "block"

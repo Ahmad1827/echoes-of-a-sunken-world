@@ -55,13 +55,28 @@ const ATTACKS := {
 		 {"hx": 68.0, "hy": 16.0, "sa": -0.02, "lean": 0.34, "py": 18.0, "ff": 72.0},
 		 {"hx": 56.0, "hy": 20.0, "sa": 0.06, "lean": 0.26, "py": 16.0, "ff": 68.0}],
 	],
+	# one kick per guard line: head kick, push kick, leg kick
 	"kick": [
+		[{"kw": 0.7, "kx": 20.0, "ky": 40.0, "hx": 24.0, "hy": 30.0, "sa": -0.9, "lean": -0.2, "py": 6.0},
+		 {"kw": 1.0, "kx": 70.0, "ky": 58.0, "hx": 16.0, "hy": 34.0, "sa": -0.7, "lean": -0.42, "py": 6.0, "ht": 0.1},
+		 {"kw": 0.3, "kx": 30.0, "ky": 20.0, "hx": 28.0, "hy": 30.0, "sa": -0.8, "lean": -0.1}],
 		[{"kw": 0.7, "kx": 22.0, "ky": 46.0, "hx": 28.0, "hy": 26.0, "sa": -1.0, "lean": -0.14, "py": 4.0},
 		 {"kw": 1.0, "kx": 74.0, "ky": 30.0, "hx": 22.0, "hy": 22.0, "sa": -1.2, "lean": -0.26, "py": 2.0},
 		 {"kw": 0.3, "kx": 30.0, "ky": 16.0, "hx": 30.0, "hy": 28.0, "sa": -0.8, "lean": -0.05}],
+		[{"kw": 0.6, "kx": 26.0, "ky": -24.0, "hx": 30.0, "hy": 24.0, "sa": -0.8, "lean": -0.04, "py": 8.0},
+		 {"kw": 1.0, "kx": 72.0, "ky": -62.0, "hx": 24.0, "hy": 22.0, "sa": -1.0, "lean": -0.16, "py": 12.0},
+		 {"kw": 0.3, "kx": 28.0, "ky": -34.0, "hx": 30.0, "hy": 28.0, "sa": -0.8, "lean": -0.04, "py": 8.0}],
 	],
 }
 
+## Kick strength by guard line, before the kicker's `kick` stat.
+const KICKS := [
+	{"dmg": 9.0, "posture": 20.0, "stun": 30.0},
+	{"dmg": 3.0, "posture": 34.0, "stun": 26.0},
+	{"dmg": 6.0, "posture": 12.0, "stun": 20.0},
+]
+const SWEEP_AT := 2.0
+const SWEPT := {"hx": 20.0, "hy": 58.0, "sa": 1.5, "lean": 0.55, "py": 56.0, "ht": 0.3, "ff": 42.0, "bf": -44.0}
 const RECOIL := {"hx": 2.0, "hy": -44.0, "sa": -2.7, "lean": -0.28, "py": 6.0, "ht": -0.3, "bf": -46.0, "ff": 18.0}
 const HURT := {"hx": 24.0, "hy": 44.0, "sa": 1.0, "lean": -0.12, "py": 16.0, "ht": -0.15}
 const BROKEN := {"hx": 20.0, "hy": 60.0, "sa": 1.55, "lean": 0.5, "py": 30.0, "ht": 0.45, "ff": 30.0, "bf": -34.0}
@@ -82,6 +97,13 @@ var stamina := 100.0
 var exhausted := false
 var wins := 0
 var lethal := true
+var build: Dictionary = {}
+var stats: Dictionary = {}
+## Low kicks landed and not yet recovered from: slows the leg, and the second sweeps it.
+var leg_wound := 0.0
+var leg_delay := 0.0
+## Frames left in which a cut on this fighter gets the kicker's follow-up bonus.
+var opened := 0.0
 
 var state := "idle"
 var st := 0.0
@@ -116,8 +138,17 @@ var events: Array = []
 var shapes: Dictionary = {}
 
 
+func apply_build(b: Dictionary, st: Dictionary) -> void:
+	build = b
+	stats = st
+	rig.apply_build(b)
+
+
 func setup(i: int, px: float, gy: float, face: float) -> void:
 	id = i
+	leg_wound = 0.0
+	leg_delay = 0.0
+	opened = 0.0
 	x = px
 	ground = gy
 	facing = face
@@ -176,13 +207,18 @@ func update(ts: float, op: Fighter, arena: Vector2) -> void:
 
 	stam_delay -= ts
 	if stam_delay <= 0.0 and state != "attack" and state != "dash":
-		stamina = minf(100.0, stamina + (0.26 if state == "block" else 0.5) * ts)
+		stamina = minf(100.0, stamina + (0.26 if state == "block" else 0.5) * float(stats["stam"]) * ts)
 	if exhausted and stamina > 35.0:
 		exhausted = false
 	posture_delay -= ts
 	if posture_delay <= 0.0 and state != "broken":
 		posture = maxf(0.0, posture - (0.2 if state == "block" else 0.42) * ts)
 	limp = maxf(0.0, limp - ts)
+	# a kicked leg stays hurt for about four seconds, long enough to land the next one
+	leg_delay -= ts
+	if leg_delay <= 0.0:
+		leg_wound = maxf(0.0, leg_wound - ts / 420.0)
+	opened = maxf(0.0, opened - ts)
 	if hp_trail > hp:
 		hp_trail = maxf(hp, hp_trail - 0.45 * ts)
 	block_t += ts
@@ -197,7 +233,7 @@ func update(ts: float, op: Fighter, arena: Vector2) -> void:
 			vx = dash_dir * facing * (11.0 if dash_dir > 0.0 else 9.5) * pow(maxf(0.0, 1.0 - k), 1.4)
 			if st >= 15.0:
 				enter("idle")
-		"recoil", "hurt", "broken", "kicked", "blockstun", "deflect":
+		"recoil", "hurt", "broken", "kicked", "blockstun", "deflect", "swept":
 			vx *= pow(0.84, ts)
 			if st >= stun_len:
 				if state == "broken":
@@ -236,9 +272,9 @@ func _free_update(ts: float, fwd: int, block_pressed: bool) -> void:
 	if float(buf["dash"]) > 0.0 and stamina >= 12.0 and not exhausted:
 		buf["dash"] = 0.0
 		dash_dir = 1.0 if fwd > 0 else -1.0
-		_spend(18.0)
+		_spend(18.0 * float(stats.get("dash_cost", 1.0)))
 		enter("dash")
-		events.append({"t": "dash", "pos": Vector2(x, ground)})
+		events.append({"t": "dash", "pos": Vector2(x, ground), "id": id})
 		return
 	var blocking: bool = input["block"]
 	if block_pressed:
@@ -246,7 +282,8 @@ func _free_update(ts: float, fwd: int, block_pressed: bool) -> void:
 		parry_ok = (age - last_block_press) > PARRY_SPAM
 		last_block_press = age
 		block_t = 0.0
-	var speed_mul: float = (0.72 if exhausted else 1.0) * (0.62 if limp > 0.0 else 1.0)
+	var speed_mul: float = float(stats["speed"]) * (0.72 if exhausted else 1.0) * (0.62 if limp > 0.0 else 1.0)
+	speed_mul *= 1.0 - 0.2 * minf(leg_wound, SWEEP_AT)
 	var target := 0.0
 	if fwd != 0:
 		target = facing * fwd * (3.1 if fwd > 0 else 2.4) * speed_mul * (0.5 if blocking else 1.0)
@@ -262,8 +299,12 @@ func _start(name: String) -> void:
 	_spend(mv["stam"])
 	move_name = name
 	move = mv
-	attack_line = MID if (name == "thrust" or name == "kick") else line
-	startup_eff = float(mv["startup"]) * (1.22 if exhausted else 1.0)
+	attack_line = line
+	if name == "thrust" or (name == "kick" and not stats["kick_lines"]):
+		attack_line = MID
+	startup_eff = float(mv["startup"]) * float(stats["startup"]) * (1.22 if exhausted else 1.0)
+	if name == "kick":
+		startup_eff *= float(stats.get("kick_startup", 1.0))
 	charge = 0.0
 	charging = false
 	hit_done = false
@@ -302,7 +343,10 @@ func _attack_update(ts: float, block_pressed: bool) -> void:
 		if st >= startup_eff:
 			phase = "active"
 			st = 0.0
-			vx += facing * float(move["lunge"]) * (1.0 + charge / 60.0)
+			var lunge: float = float(move["lunge"]) * (1.0 + charge / 60.0)
+			if move_name == "kick":
+				lunge *= float(stats.get("kick_lunge", 1.0))
+			vx += facing * lunge
 			hit_done = false
 			events.append({"t": "swing", "heavy": move_name == "heavy", "kind": move["kind"], "pos": rig.chest})
 	elif phase == "active":
@@ -344,6 +388,8 @@ func _apply_pose() -> void:
 		"attack":
 			var frames: Array = ATTACKS[move_name]
 			var keys: Array = frames[attack_line if frames.size() > 1 else 0]
+			if move_name == "thrust":
+				keys = frames[0]
 			var idx: int = 0 if phase == "startup" else (1 if phase == "active" else 2)
 			pose = keys[idx].duplicate()
 			if phase == "startup":
@@ -380,6 +426,10 @@ func _apply_pose() -> void:
 			pose = KICKED
 			stiff = 16.0
 			damp = 0.6
+		"swept":
+			pose = SWEPT
+			stiff = 20.0
+			damp = 0.75
 		"dying":
 			pose = DYING
 			stiff = 7.0

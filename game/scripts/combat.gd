@@ -59,22 +59,13 @@ static func _strike(att: Fighter, def: Fighter, ev: Array) -> void:
 	var heavy: bool = att.move_name == "heavy"
 
 	if att.move_name == "kick":
-		var guarded: bool = def.state == "block" or def.state == "blockstun"
-		var broke: bool = _add_posture(def, float(mv["posture"]) * (1.4 if guarded else 1.0), ev)
-		if not broke:
-			def.enter("kicked")
-			def.stun_len = 26.0
-		def.vx = att.facing * 8.0
-		if def.lethal:
-			def.hp -= float(mv["dmg"])
-		def.rig.kick("lean", -5.0)
-		ev.append({"t": "kick", "pos": point, "dir": att.facing})
+		_kick(att, def, hit, ev)
 		return
 
 	var guarding: bool = def.state == "block" or def.state == "blockstun"
 	if guarding and def.facing == -att.facing and def.line == att.attack_line:
 		var contact: Vector2 = _blade_point(att, def, point)
-		if def.state == "block" and def.parry_ok and def.block_t <= Fighter.PARRY_WINDOW:
+		if def.state == "block" and def.parry_ok and def.block_t <= Fighter.PARRY_WINDOW + float(def.stats["parry"]):
 			att.enter("recoil")
 			att.stun_len = 50.0 if heavy else 42.0
 			att.vx = -att.facing * 4.0
@@ -86,7 +77,7 @@ static func _strike(att: Fighter, def: Fighter, ev: Array) -> void:
 			att.rig.kick("lean", -4.0)
 			ev.append({"t": "parry", "pos": contact, "by": def.id})
 			return
-		var pd: float = float(mv["posture"]) * (1.0 + att.charge / Fighter.MAX_CHARGE * 0.7) * (1.3 if def.exhausted else 1.0)
+		var pd: float = float(mv["posture"]) * float(att.stats["brk"]) * (1.0 + att.charge / Fighter.MAX_CHARGE * 0.7) * (1.3 if def.exhausted else 1.0)
 		def.vx = att.facing * (6.0 if heavy else 3.5)
 		att.vx -= att.facing * 1.0
 		ev.append({"t": "block", "pos": contact, "heavy": heavy})
@@ -100,7 +91,10 @@ static func _strike(att: Fighter, def: Fighter, ev: Array) -> void:
 	var part: String = hit["part"]
 	var mult: float = {"head": 1.5, "torso": 1.0, "arm": 0.6, "leg": 0.75}[part]
 	var dmg: float = float(mv["dmg"]) * mult * (1.0 + att.charge / Fighter.MAX_CHARGE * 0.45)
-	if def.state == "broken":
+	dmg *= float(att.stats["atk"]) / float(def.stats["tough"])
+	if def.opened > 0.0:
+		dmg *= float(att.stats["link"])
+	if def.state == "broken" or def.state == "swept":
 		dmg *= 1.5
 	var counter: bool = def.state == "attack" and def.phase == "startup"
 	if counter:
@@ -111,18 +105,75 @@ static func _strike(att: Fighter, def: Fighter, ev: Array) -> void:
 	if part == "leg":
 		def.limp = 150.0
 	var dir: float = att.facing
-	if def.hp <= 0.0:
-		def.hp = 0.0
-		def.enter("dying")
-		def.rig.kick("lean", 3.0)
-		def.rig.kick("py", 80.0)
-		ev.append({"t": "ko", "pos": point, "dir": dir, "victim": def.id, "dmg": dmg})
+	if _fell(def, point, dir, dmg, ev):
 		return
 	def.enter("hurt")
 	def.stun_len = 14.0 + dmg * 0.55
 	_react(def, part, dir)
 	ev.append({"t": "hit", "pos": point, "dir": dir, "part": part, "dmg": dmg, "heavy": heavy,
 		"counter": counter, "victim": def.id})
+
+
+## High, mid and low kicks. Mid shoves through any guard; high and low are stopped only by the
+## matching guard. Low kicks wound the leg, and the second in quick succession takes it away.
+static func _kick(att: Fighter, def: Fighter, hit: Dictionary, ev: Array) -> void:
+	var point: Vector2 = hit["point"]
+	var line: int = att.attack_line
+	var kd: Dictionary = Fighter.KICKS[line]
+	var power: float = att.stats["kick"]
+	var guarding: bool = (def.state == "block" or def.state == "blockstun") and def.facing == -att.facing
+	var blocked: bool = guarding and line != Fighter.MID and def.line == line
+	var post: float = float(kd["posture"]) * power
+	if guarding and line == Fighter.MID:
+		post *= 1.4
+	if blocked:
+		post *= 0.5
+	def.vx = att.facing * (3.5 if blocked else 8.0)
+	var broke: bool = _add_posture(def, post, ev)
+	ev.append({"t": "kick", "pos": point, "dir": att.facing, "id": att.id, "line": line, "blocked": blocked})
+	if blocked:
+		if not broke:
+			def.enter("blockstun")
+			def.stun_len = 12.0
+		return
+	var dmg: float = float(kd["dmg"]) * power / float(def.stats["tough"])
+	if line == Fighter.HIGH and hit["part"] != "head":
+		dmg *= 0.5
+	if def.lethal:
+		def.hp -= dmg
+	if _fell(def, point, att.facing, dmg, ev):
+		return
+	def.opened = 75.0
+	if line == Fighter.LOW:
+		def.leg_wound += 1.0
+		def.leg_delay = 240.0
+		def.limp = maxf(def.limp, 150.0)
+		if def.leg_wound >= Fighter.SWEEP_AT:
+			# the wound clears, so a downed man cannot be swept again and again
+			def.leg_wound = 0.0
+			def.enter("swept")
+			def.stun_len = 72.0
+			def.vx = att.facing * 2.0
+			ev.append({"t": "sweep", "pos": point, "victim": def.id})
+			return
+	if not broke:
+		def.enter("kicked")
+		def.stun_len = kd["stun"]
+	def.rig.kick("lean", -5.0)
+	if line == Fighter.HIGH:
+		def.rig.kick("ht", -14.0)
+
+
+## True if that blow killed: the victim starts to fall and the round ends.
+static func _fell(def: Fighter, point: Vector2, dir: float, dmg: float, ev: Array) -> bool:
+	if def.hp > 0.0:
+		return false
+	def.hp = 0.0
+	def.enter("dying")
+	def.rig.kick("lean", 3.0)
+	def.rig.kick("py", 80.0)
+	ev.append({"t": "ko", "pos": point, "dir": dir, "victim": def.id, "dmg": dmg})
+	return true
 
 
 ## Part-specific flinch: impulses go straight into the pose springs.
@@ -145,7 +196,7 @@ static func _react(f: Fighter, part: String, dir: float) -> void:
 
 
 static func _add_posture(f: Fighter, amount: float, ev: Array) -> bool:
-	f.posture += amount
+	f.posture += amount / float(f.stats["guard"])
 	f.posture_delay = 70.0
 	if f.posture >= 100.0:
 		f.posture = 100.0
