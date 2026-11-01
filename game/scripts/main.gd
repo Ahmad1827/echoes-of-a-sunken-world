@@ -78,10 +78,19 @@ var frame := 0
 var stats := {}
 var title_test := false
 var auto_game := "casual"
+var world_dirty := true
+var perf_path := ""
+var perf_last := 0
+var perf_frame_ms := PackedFloat32Array()
+var perf_gpu_ms := PackedFloat32Array()
+var perf_physics_ms := PackedFloat32Array()
+var perf_idle_ms := PackedFloat32Array()
+var perf_render_cpu_ms := PackedFloat32Array()
 
 
 func _ready() -> void:
 	randomize()
+	_fit_window()
 	var args := OS.get_cmdline_user_args()
 	for a: String in args:
 		if a == "--autotest":
@@ -94,6 +103,8 @@ func _ready() -> void:
 			shot_dir = a.get_slice("=", 1)
 		elif a.begins_with("--every="):
 			shot_every = int(a.get_slice("=", 1))
+		elif a.begins_with("--perf="):
+			perf_path = a.get_slice("=", 1)
 		elif a == "--title":
 			title_test = true
 		elif a.begins_with("--game="):
@@ -103,8 +114,11 @@ func _ready() -> void:
 		elif a.begins_with("--dump="):
 			_dump_bodies(a.get_slice("=", 1))
 			set_physics_process(false)
+			set_process(false)
 			get_tree().quit()
 			return
+	if perf_path != "":
+		RenderingServer.viewport_set_measure_render_time(get_viewport().get_viewport_rid(), true)
 	# test runs never touch the player's real save
 	if autotest:
 		save_path = "user://autotest_progress.cfg"
@@ -606,6 +620,7 @@ func _physics_process(_delta: float) -> void:
 	if paused or show_controls:
 		hud.queue_redraw()
 		return
+	world_dirty = true
 
 	if slow_timer > 0.0:
 		slow_timer -= 1.0
@@ -647,9 +662,6 @@ func _physics_process(_delta: float) -> void:
 	_flow(ts)
 	_camera()
 	_post_fx()
-	for n: CanvasItem in [fighter_view, shadow_view, contact_view, hud]:
-		n.queue_redraw()
-	fx.redraw()
 	(shadow_group.material as ShaderMaterial).set_shader_parameter("blur", stage.shadow_blur * cur_zoom)
 	if autotest:
 		_autotest_tick()
@@ -903,7 +915,65 @@ func _post_fx() -> void:
 	post.set_shader_parameter("desat", desat)
 
 
+## Keeps the window on the monitor: pixels beyond the screen's edge cost the same and nobody sees them.
+func _fit_window() -> void:
+	var win: Window = get_window()
+	if win.mode != Window.MODE_WINDOWED:
+		return
+	var free: Vector2i = DisplayServer.screen_get_usable_rect(win.current_screen).size
+	free -= win.get_size_with_decorations() - win.size
+	var fit: float = minf(float(free.x) / win.size.x, float(free.y) / win.size.y)
+	if fit < 1.0:
+		win.size = Vector2i(Vector2(win.size) * fit)
+		win.move_to_center()
+
+
 # ---------------------------------------------------------------- automated test
+
+## Redrawing here, not in the tick, means a slow PC that runs several ticks per frame only draws once.
+func _process(_delta: float) -> void:
+	if world_dirty:
+		world_dirty = false
+		for n: CanvasItem in [fighter_view, shadow_view, contact_view, hud]:
+			n.queue_redraw()
+		fx.redraw()
+	if perf_path != "":
+		_sample_perf()
+
+
+## With --perf=<file>: collects frame times, skipping the first frames while shaders compile.
+func _sample_perf() -> void:
+	if frame < 120:
+		return
+	# delta is capped by max_physics_steps, so slow frames need the real clock
+	var now: int = Time.get_ticks_usec()
+	if perf_last > 0:
+		perf_frame_ms.append((now - perf_last) / 1000.0)
+	perf_last = now
+	perf_gpu_ms.append(RenderingServer.viewport_get_measured_render_time_gpu(get_viewport().get_viewport_rid()))
+	perf_physics_ms.append(Performance.get_monitor(Performance.TIME_PHYSICS_PROCESS) * 1000.0)
+	perf_idle_ms.append(Performance.get_monitor(Performance.TIME_PROCESS) * 1000.0)
+	perf_render_cpu_ms.append(RenderingServer.viewport_get_measured_render_time_cpu(get_viewport().get_viewport_rid()) + RenderingServer.get_frame_setup_time_cpu())
+
+
+func _write_perf() -> void:
+	var sorted := perf_frame_ms.duplicate()
+	sorted.sort()
+	var n: int = sorted.size()
+	if n == 0:
+		return
+	var mean := func(a: PackedFloat32Array) -> float:
+		var t := 0.0
+		for v: float in a:
+			t += v
+		return t / a.size()
+	var fa := FileAccess.open(perf_path, FileAccess.WRITE)
+	fa.store_line("%s stage=%d window=%s frames=%d avg_fps=%.1f frame_ms avg=%.2f p50=%.2f p95=%.2f p99=%.2f max=%.2f gpu_ms=%.2f physics_ms=%.2f idle_ms=%.2f render_cpu_ms=%.2f" % [
+		RenderingServer.get_current_rendering_method(), stage_idx, str(get_window().size), n, 1000.0 / mean.call(perf_frame_ms),
+		mean.call(perf_frame_ms), sorted[n / 2], sorted[n * 95 / 100], sorted[n * 99 / 100], sorted[n - 1],
+		mean.call(perf_gpu_ms), mean.call(perf_physics_ms), mean.call(perf_idle_ms), mean.call(perf_render_cpu_ms)])
+	fa.close()
+
 
 func _autotest_tick() -> void:
 	var limit: int = auto_frames
@@ -916,6 +986,8 @@ func _autotest_tick() -> void:
 			frame, mode, round_no, a.hp, a.posture, a.stamina, a.state, b.hp, b.posture, b.stamina, b.state, absf(a.x - b.x)])
 	if frame >= limit:
 		print("EVENTS ", stats)
+		if perf_path != "":
+			_write_perf()
 		if shot_dir != "":
 			_shot("final")
 		get_tree().quit()

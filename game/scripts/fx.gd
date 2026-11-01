@@ -11,6 +11,56 @@ var fighters: Array = []
 var stage: Stage
 var add_layer: Node2D
 
+# Hundreds of specks live at once, so they share one triangle array rather than one draw call each.
+static var RING_TINY: PackedVector2Array = _ring(6)
+static var RING_SMALL: PackedVector2Array = _ring(14)
+static var RING_BIG: PackedVector2Array = _ring(32)
+var batch_pts := PackedVector2Array()
+var batch_cols := PackedColorArray()
+var batch_idx := PackedInt32Array()
+
+
+static func _ring(n: int) -> PackedVector2Array:
+	var out := PackedVector2Array()
+	for i in n:
+		out.append(Vector2.from_angle(TAU * i / n))
+	return out
+
+
+## Adds a filled disc to the batch, using no more points than its size can show.
+func _disc(p: Vector2, r: float, c: Color, squash: float = 1.0) -> void:
+	var ring: PackedVector2Array = RING_TINY if r < 2.0 else (RING_SMALL if r < 8.0 else RING_BIG)
+	var base: int = batch_pts.size()
+	var n: int = ring.size()
+	for i in n:
+		var q: Vector2 = ring[i]
+		batch_pts.append(p + Vector2(q.x * r, q.y * r * squash))
+		batch_cols.append(c)
+		if i >= 2:
+			batch_idx.append(base)
+			batch_idx.append(base + i - 1)
+			batch_idx.append(base + i)
+
+
+## A thin horizontal streak, added to the batch.
+func _streak(p: Vector2, length: float, c: Color) -> void:
+	var base: int = batch_pts.size()
+	batch_pts.append(p + Vector2(0.0, -0.5))
+	batch_pts.append(p + Vector2(length, -0.5))
+	batch_pts.append(p + Vector2(length, 0.5))
+	batch_pts.append(p + Vector2(0.0, 0.5))
+	for i in 4:
+		batch_cols.append(c)
+	batch_idx.append_array(PackedInt32Array([base, base + 1, base + 2, base, base + 2, base + 3]))
+
+
+func _flush_batch(ci: CanvasItem) -> void:
+	if not batch_idx.is_empty():
+		RenderingServer.canvas_item_add_triangle_array(ci.get_canvas_item(), batch_idx, batch_pts, batch_cols)
+	batch_pts.clear()
+	batch_cols.clear()
+	batch_idx.clear()
+
 
 func _ready() -> void:
 	add_layer = Node2D.new()
@@ -140,22 +190,20 @@ func _draw() -> void:
 		match q["k"]:
 			INK:
 				if stage.water:
-					draw_circle(p, q["r"], Color(0.03, 0.02, 0.03, minf(1.0, a * 1.4) * 0.55))
+					_disc(p, q["r"], Color(0.03, 0.02, 0.03, minf(1.0, a * 1.4) * 0.55))
 				else:
-					draw_circle(p, q["r"], Color(0.02, 0.02, 0.03, 1.0))
+					_disc(p, q["r"], Color(0.02, 0.02, 0.03, 1.0))
 			SNOW:
-				draw_circle(p, q["r"], Color(0.8, 0.93, 0.9, float(q["a"]) * sin(a * PI)))
+				_disc(p, q["r"], Color(0.8, 0.93, 0.9, float(q["a"]) * sin(a * PI)))
 			STAIN:
-				var r: float = q["r"]
-				draw_set_transform(p, 0.0, Vector2(1.0, 0.28))
-				draw_circle(Vector2.ZERO, r, Color(0.02, 0.02, 0.03, minf(1.0, a * 3.0) * 0.85))
-				draw_set_transform(Vector2.ZERO)
+				_disc(p, q["r"], Color(0.02, 0.02, 0.03, minf(1.0, a * 3.0) * 0.85), 0.28)
 			DUST:
 				var c: Color = q["c"]
 				c.a *= sin(a * PI) * 0.6
-				draw_circle(p, q["r"], c)
+				_disc(p, q["r"], c)
 			SAND:
-				draw_line(p, p + Vector2(q["len"], 0), Color(0.97, 0.86, 0.74, 0.2 * a), 1.0)
+				_streak(p, q["len"], Color(0.97, 0.86, 0.74, 0.2 * a))
+	_flush_batch(self)
 
 
 func _draw_add() -> void:
@@ -188,18 +236,19 @@ func _draw_add() -> void:
 				var c: Color = q["c"]
 				L.draw_line(p, p - v * 2.4, Color(c.r, c.g, c.b, a), 1.8, true)
 			MOTE:
-				L.draw_circle(p, q["r"], Color(0.8, 0.86, 0.86, sin(a * PI) * 0.35))
+				_disc(p, q["r"], Color(0.8, 0.86, 0.86, sin(a * PI) * 0.35))
 			BUBBLE:
 				var r: float = q["r"]
 				var ba: float = minf(1.0, a * 3.0) * 0.55
 				L.draw_arc(p, r, 0.0, TAU, 12, Color(0.75, 0.95, 0.95, ba), 1.0, true)
-				L.draw_circle(p + Vector2(-r * 0.35, -r * 0.35), r * 0.3, Color(1.2, 1.3, 1.3, ba))
+				_disc(p + Vector2(-r * 0.35, -r * 0.35), r * 0.3, Color(1.2, 1.3, 1.3, ba))
+	_flush_batch(L)
 	for c: Dictionary in cuts:
 		var a: float = float(c["life"]) / 12.0
 		var p: Vector2 = c["p"]
 		var d: Vector2 = c["d"]
 		var l: float = float(c["len"]) * (1.2 - a * 0.4)
-		L.draw_line(p - d * l * 0.5, p + d * l * 0.5, Color(2.2, 2.2, 2.2, a), 5.0 * a + 0.5, true)
+		L.draw_line(p - d * l * 0.5, p + d * l * 0.5, Color(1.4, 1.4, 1.4, a * 0.7), 2.0 * a + 0.4, true)
 
 
 func _trail(f: Fighter) -> void:

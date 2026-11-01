@@ -39,11 +39,14 @@ void fragment() {
 
 	// the underside of the waves: cells of bright refracted sky
 	float s = smoothstep(surface_y + 90.0, surface_y - 30.0, px.y);
-	vec2 q = vec2(px.x / 120.0, px.y / 30.0) + vec2(TIME * 0.07, TIME * 0.03);
-	float w1 = fbm(q);
-	float w2 = fbm(q * 1.9 + vec2(4.0, -TIME * 0.05));
-	float cells = pow(1.0 - abs(sin((w1 + w2 * 0.6) * 9.0)), 5.0);
-	vec3 surf = surface_col * (0.62 + 0.6 * cells);
-	col = mix(col, surf, s);
+	// (only the strip near the surface shows them, so the rest skips the costly noise)
+	if (s > 0.0) {
+		vec2 q = vec2(px.x / 120.0, px.y / 30.0) + vec2(TIME * 0.07, TIME * 0.03);
+		float w1 = fbm(q);
+		float w2 = fbm(q * 1.9 + vec2(4.0, -TIME * 0.05));
+		float cells = pow(1.0 - abs(sin((w1 + w2 * 0.6) * 9.0)), 5.0);
+		vec3 surf = surface_col * (0.62 + 0.6 * cells);
+		col = mix(col, surf, s);
+	}
 	COLOR = vec4(col, 1.0);
 }

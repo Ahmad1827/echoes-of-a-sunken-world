@@ -16,6 +16,37 @@ float hash(vec2 p) {
 	return fract((p.x + p.y) * p.x);
 }
 
+vec3 screen(vec2 uv) {
+	return textureLod(screen_tex, uv, 0.0).rgb;
+}
+
+// Perceived brightness, so that edges between dark tones count as much as edges on bright ones.
+float luma(vec3 c) {
+	return sqrt(max(dot(c, vec3(0.299, 0.587, 0.114)), 0.0));
+}
+
+// Smooths hard silhouette edges along their direction (FXAA), at far less cost than MSAA.
+vec3 smooth_edges(vec2 uv, vec2 texel) {
+	vec3 mid = screen(uv);
+	float m = luma(mid);
+	float nw = luma(screen(uv + vec2(-0.5, -0.5) * texel));
+	float ne = luma(screen(uv + vec2(0.5, -0.5) * texel));
+	float sw = luma(screen(uv + vec2(-0.5, 0.5) * texel));
+	float se = luma(screen(uv + vec2(0.5, 0.5) * texel));
+	float lo = min(m, min(min(nw, ne), min(sw, se)));
+	float hi = max(m, max(max(nw, ne), max(sw, se)));
+	if (hi - lo < max(0.04, hi * 0.125)) {
+		return mid;
+	}
+	vec2 dir = vec2(sw + se - nw - ne, nw + sw - ne - se);
+	float reduce = max((nw + ne + sw + se) * 0.03125, 0.0078125);
+	dir = clamp(dir / (min(abs(dir.x), abs(dir.y)) + reduce), -8.0, 8.0) * texel;
+	vec3 inner = 0.5 * (screen(uv - dir / 6.0) + screen(uv + dir / 6.0));
+	vec3 outer = inner * 0.5 + 0.25 * (screen(uv - dir * 0.5) + screen(uv + dir * 0.5));
+	float b = luma(outer);
+	return (b < lo || b > hi) ? inner : outer;
+}
+
 void fragment() {
 	vec2 uv = SCREEN_UV;
 	// the faint refraction wobble of looking through water
@@ -23,10 +54,12 @@ void fragment() {
 		cos(uv.x * 29.0 + TIME * 1.1)) * 0.0009 * water;
 	vec2 dir = uv - 0.5;
 	float k = ca * 0.006 + 0.0007;
-	vec3 c;
-	c.r = textureLod(screen_tex, uv + dir * k, 0.0).r;
-	c.g = textureLod(screen_tex, uv, 0.0).g;
-	c.b = textureLod(screen_tex, uv - dir * k, 0.0).b;
+	vec3 c = smooth_edges(uv, SCREEN_PIXEL_SIZE);
+	// colour fringing only needs the extra samples while an impact is showing it
+	if (ca > 0.01) {
+		c.r = textureLod(screen_tex, uv + dir * k, 0.0).r;
+		c.b = textureLod(screen_tex, uv - dir * k, 0.0).b;
+	}
 	float lum = dot(c, vec3(0.299, 0.587, 0.114));
 	c = mix(c, vec3(lum) * vec3(1.02, 1.0, 0.97), desat);
 	float v = smoothstep(0.98, 0.2, length(dir * vec2(1.0, 0.85)));

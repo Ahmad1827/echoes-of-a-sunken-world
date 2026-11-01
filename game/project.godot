@@ -34,6 +34,5 @@ common/max_physics_steps_per_frame=4
 renderer/rendering_method="forward_plus"
 rendering_device/fallback_to_opengl3=true
 viewport/hdr_2d=true
-anti_aliasing/quality/msaa_2d=2
 environment/defaults/default_clear_color=Color(0, 0, 0, 1)
 textures/canvas_textures/default_texture_filter=1

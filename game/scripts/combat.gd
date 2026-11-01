@@ -45,7 +45,16 @@ static func _strike(att: Fighter, def: Fighter, ev: Array) -> void:
 		return
 	var hit := {}
 	if att.move_name == "kick":
-		hit = _probe(def, [att.rig.kn_f, att.rig.ft_f], 9.0)
+		var seg: Array = att.rig.kick_seg()
+		hit = _probe(def, seg, 9.0)
+		# a head kick rises past the chest: it goes for the head, and only takes the body on its last frame
+		if att.attack_line == Fighter.HIGH and not hit.is_empty():
+			var hb: Array = def.rig.hurtboxes()[0]
+			var r: Array = U.seg_seg(seg[0], seg[1], hb[1], hb[2])
+			if float(r[0]) < float(hb[3]) + 9.0:
+				hit = {"part": "head", "point": r[2]}
+			elif att.st < float(att.move["active"]) - 1.0:
+				hit = {}
 	else:
 		for s in range(1, 5):
 			hit = _probe(def, swept_blade(att, s / 4.0), 1.5)
@@ -120,7 +129,7 @@ static func _kick(att: Fighter, def: Fighter, hit: Dictionary, ev: Array) -> voi
 	var point: Vector2 = hit["point"]
 	var line: int = att.attack_line
 	var kd: Dictionary = Fighter.KICKS[line]
-	var power: float = att.stats["kick"]
+	var power: float = float(att.stats["kick"]) * float(att.kick_art.get("power", 1.0))
 	var guarding: bool = (def.state == "block" or def.state == "blockstun") and def.facing == -att.facing
 	var blocked: bool = guarding and line != Fighter.MID and def.line == line
 	var post: float = float(kd["posture"]) * power

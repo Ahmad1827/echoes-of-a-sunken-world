@@ -13,7 +13,7 @@ func _init() -> void:
 	title = "THE HOLLOW GATE"
 	ground = 770.0
 	arena = Vector2(380.0, 2050.0)
-	glow = true
+	glow = false
 	water = true
 	light_type = "point"
 	light_pos = Vector2(1200.0, 620.0)
@@ -31,8 +31,17 @@ func _init() -> void:
 
 func build() -> Array:
 	var far := Node2D.new()
-	far.add_child(Sunken.shader_rect("res://shaders/hollow_bg.gdshader", Rect2(BG_POS, BG_SIZE),
+	# the walls are far too costly to work out every frame, and they don't move: draw them once
+	var bake := SubViewport.new()
+	bake.size = Vector2i(BG_SIZE)
+	bake.transparent_bg = true
+	bake.use_hdr_2d = true
+	bake.render_target_update_mode = SubViewport.UPDATE_ONCE
+	bake.add_child(Sunken.shader_rect("res://shaders/hollow_bake.gdshader", Rect2(Vector2.ZERO, BG_SIZE),
 		{"portal": PC - BG_POS, "portal_r": PR}))
+	far.add_child(bake)
+	far.add_child(Sunken.shader_rect("res://shaders/hollow_bg.gdshader", Rect2(BG_POS, BG_SIZE),
+		{"baked": bake.get_texture()}))
 	var glow_s := Sprite2D.new()
 	glow_s.texture = U.radial_texture(256)
 	glow_s.position = PC

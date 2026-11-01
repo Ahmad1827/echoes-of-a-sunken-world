@@ -36,11 +36,12 @@ How the fight works:
 
 ## Kicks
 
-Kicks are Maren's main weapon, and they follow the guard line you hold:
+Kicks are Maren's main weapon. They follow the guard line you hold, and each press takes the next karate technique on that line. Every technique runs load, chamber, snap, re-chamber, set down, with her standing foot pivoting and her free hand pulling back to the ribs.
 
-- **Leg kick (hold down).** Slows him, and a second within about four seconds sweeps him down for a long opening. A mark over his head shows the leg is wounded. Only a low guard stops it.
-- **Head kick (hold up).** Big damage and stun if it reaches the head. Only a high guard stops it.
-- **Push kick (no direction).** Shoves through any guard and wrecks posture.
+- **Leg kick (hold down): gedan mawashi-geri, kansetsu-geri, ashi-barai.** Slows him, and a second within about four seconds sweeps him down for a long opening. A mark over his head shows the leg is wounded. Only a low guard stops it.
+- **Head kick (hold up): jodan mawashi-geri, kakato-otoshi.** Big damage and stun if it reaches the head. Only a high guard stops it.
+- **Push kick (no direction): mae-geri, yoko-geri kekomi.** Shoves through any guard and wrecks posture.
+- **Flying side kick (hold forward): tobi yoko-geri.** She jumps across the gap, side-on with the lead leg straight out. Hits 50% harder and shoves through any guard, but it's slow and costs the most stamina.
 
 A cut straight after any kick lands 30% harder. The men only have a weak push kick.
 
@@ -50,9 +51,9 @@ Open this `game/` folder in the [Godot 4.7 editor](https://godotengine.org/downl
 
 | File | What it controls |
 | --- | --- |
-| `scripts/rig.gd` | Skeleton, IK, foot planting, cloth (ponytail, hip wrap), ragdoll, and the anatomical silhouette (`TORSO_P`, `THIGH_P`, `HEAD`, ...; 1 unit = 1 cm) |
+| `scripts/rig.gd` | Skeleton, IK, foot planting, cloth (hair, skirt, capes), ragdoll, Maren's silhouette clothes (`_outfit`), and the anatomical silhouette (`ANATOMY`, `HAIR_SLEEK`, ...; 1 unit = 1 cm) |
 | `scripts/builds.gd` | Every fighter's body, sword, stats and AI; story text; training drills; saved progress |
-| `scripts/fighter.gd` | States, move timings (`MOVES`) and every key pose (`GUARD`, `BLOCK`, `ATTACKS`, ...) |
+| `scripts/fighter.gd` | States, move timings (`MOVES`) and every key pose (`GUARD`, `BLOCK`, `ATTACKS`, Maren's techniques in `KICK_ART`, ...) |
 | `scripts/combat.gd` | Blade hit detection, parry, block, posture, clashes |
 | `scripts/ai.gd` | Opponent behaviour |
 | `scripts/stage_hollow.gd`, `scripts/stage_dune.gd` | Stage art, light position, shadow settings |
