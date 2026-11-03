@@ -32,8 +32,8 @@ const GRIP := 22.0
 ## air: the whole body off the floor, tk/tx/ty: blend and target for tucking the other leg up in the air.
 const KEYS := ["px", "py", "lean", "hx", "hy", "sa", "bl", "fs", "ht", "ff", "bf", "kw", "kx", "ky", "tw",
 	"kp", "kt", "sh", "sv", "rh", "air", "tk", "tx", "ty"]
-const DEFAULT := {"px": 0.0, "py": 3.0, "lean": 0.03, "hx": 34.0, "hy": 40.0, "sa": -0.42, "bl": 1.0,
-	"fs": 0.0, "ht": 0.0, "ff": 22.0, "bf": -28.0, "kw": 0.0, "kx": 0.0, "ky": 0.0, "tw": 0.0,
+const DEFAULT := {"px": 0.0, "py": 9.0, "lean": 0.05, "hx": 34.0, "hy": 40.0, "sa": -0.42, "bl": 1.0,
+	"fs": 0.0, "ht": 0.0, "ff": 30.0, "bf": -40.0, "kw": 0.0, "kx": 0.0, "ky": 0.0, "tw": 0.0,
 	"kp": 0.1, "kt": 0.0, "sh": 0.0, "sv": 0.0, "rh": 0.0, "air": 0.0, "tk": 0.0, "tx": 0.0, "ty": 0.0}
 
 var p := {}
@@ -101,6 +101,8 @@ var rear_grip := true
 var feet: Array = []
 
 var chains := {}
+## Trouser hems, one per leg: {pos, vel}.
+var hems: Array = []
 
 var ragdoll := false
 var rd_pos := PackedVector2Array()
@@ -243,7 +245,8 @@ func _solve_pose() -> void:
 	var f := facing
 	# nobody stands perfectly still: slow breathing, and the weight drifting between the feet
 	var settle: float = clampf(1.0 - absf(float(p["kw"])) * 2.0 - float(p["air"]) * 0.2, 0.0, 1.0)
-	var breath: float = sin(time * 0.045) * settle
+	# a slow breath with a quicker catch at the top, so it never reads as a metronome
+	var breath: float = (sin(time * 0.045) + 0.25 * sin(time * 0.09 + 0.7)) * settle
 	var drift: float = sin(time * 0.019) * settle
 	var bob := 0.0
 	for ft: Dictionary in feet:
@@ -269,7 +272,7 @@ func _solve_pose() -> void:
 			pelvis.y = maxf(pelvis.y, t_foot.y - sqrt(reach * reach - dx * dx))
 	var lean: float = p["lean"]
 	spine_ang = lean * f
-	chest = pelvis + Vector2(0, -SPINE * k).rotated(spine_ang) + Vector2(0, breath * 0.7)
+	chest = pelvis + Vector2(0, -SPINE * k).rotated(spine_ang) + Vector2(drift * 0.6 * f, breath * 1.4)
 	neck = chest + Vector2(0, -NECK * k).rotated(spine_ang * 0.6)
 	head_ang = (lean * 0.4 + float(p["ht"])) * f
 	head = neck + Vector2(0, -HEAD_R * head_k - 1.5).rotated(head_ang)
@@ -399,6 +402,27 @@ func _init_cloth() -> void:
 		# optional: bends the tip of a lock forward (+) or back (-), so loose hair does not hang in a comb
 		chain["curl"] = float(c[10]) * k if c.size() > 10 else 0.0
 		chains[c[0]] = chain
+	# the garment: coat skirts and sleeves are cloth chains too, drawn as panels instead of strands
+	var g: Dictionary = build.get("garb", {})
+	var coat: float = g.get("coat", 0.0)
+	if coat > 0.0:
+		var n: int = 6
+		for side: Array in [["coat_f", 0.05], ["coat_b", -0.1]]:
+			var ch: Dictionary = _chain(_anchor(side[0]), n, coat / n * k, 1.2, 0.42, side[1])
+			ch["anchor"] = side[0]
+			ch["layer"] = "garb"
+			chains[side[0]] = ch
+	var drop: float = g.get("sleeve", 0.0)
+	if drop > 0.0:
+		for side: String in ["cuff_f", "cuff_b"]:
+			var ch2: Dictionary = _chain(_anchor(side), 3, drop / 3.0 * k, 1.5, 0.44, -0.08)
+			ch2["anchor"] = side
+			ch2["layer"] = "garb"
+			chains[side] = ch2
+	hems = []
+	for i in 2:
+		var a: Vector2 = ft_f if i == 0 else ft_b
+		hems.append({"pos": a, "vel": Vector2.ZERO})
 
 
 ## `bias` pushes the chain along the fighter's facing, strongest at the root, so hair and cloth arc
@@ -434,7 +458,26 @@ func _anchor(kind: String) -> Vector2:
 			return pelvis + Vector2(0.0, -5.0).rotated(spine_ang) * k
 		"waist":
 			return pelvis.lerp(chest, 0.17) + Vector2(-facing * 9.0, 0.0).rotated(spine_ang) * k
+		"coat_f":
+			return pelvis.lerp(chest, 0.2) + Vector2(facing * 9.5, 0.0).rotated(spine_ang) * k * float(build["width"])
+		"coat_b":
+			return pelvis.lerp(chest, 0.2) + Vector2(-facing * 11.0, 0.0).rotated(spine_ang) * k * float(build["width"])
+		"cuff_f":
+			return _cuff(el_f, hand_f)
+		"cuff_b":
+			return _cuff(el_b, hand_b)
+		"pony":
+			return head + Vector2(-facing * 8.5, -10.5).rotated(head_ang) * head_k
 	return pelvis + Vector2(-facing * 9.0, -6.0).rotated(spine_ang) * k
+
+
+## The underside of a sleeve's cuff, where its hanging bag is sewn.
+func _cuff(elbow: Vector2, hand: Vector2) -> Vector2:
+	var d: Vector2 = (hand - elbow).normalized()
+	var under := Vector2(-d.y * facing, d.x * facing)
+	if under.y < 0.0:
+		under = -under
+	return elbow.lerp(hand, 0.72) + under * 3.5 * k
 
 
 func _cloth_step(ts: float) -> void:
@@ -442,6 +485,71 @@ func _cloth_step(ts: float) -> void:
 	for key: String in chains:
 		var c: Dictionary = chains[key]
 		_chain_step(c, _anchor(c["anchor"]), ts, gust)
+	# a robe is cut as an A: its front and back panels keep apart and widen to the hem
+	if chains.has("coat_f"):
+		var fp: PackedVector2Array = chains["coat_f"]["pos"]
+		var bp: PackedVector2Array = chains["coat_b"]["pos"]
+		var flare: float = float(build["garb"].get("flare", 1.0))
+		var n: int = fp.size()
+		for i in n:
+			var u: float = float(i + 1) / n
+			var want: float = (18.0 + 24.0 * u * flare) * k * float(build["width"])
+			var sep: float = (fp[i].x - bp[i].x) * facing
+			if sep < want:
+				var push: float = (want - sep) * 0.5 * minf(1.0, 0.35 * ts)
+				fp[i].x += facing * push
+				bp[i].x -= facing * push
+		# the panels drape over the thighs instead of passing through them: the front panel rides
+		# on the lead leg, the back panel on the rear one
+		for i in n:
+			fp[i] = _over_leg(fp[i], hip_f, kn_f, ft_f, 1.0)
+			bp[i] = _over_leg(bp[i], hip_b, kn_b, ft_b, -1.0)
+		chains["coat_f"]["pos"] = fp
+		chains["coat_b"]["pos"] = bp
+	_hem_step(ts)
+
+
+## Pushes a cloth point out to the `side` (1 = front) surface of a leg at the same height.
+func _over_leg(q: Vector2, hip: Vector2, knee: Vector2, ankle: Vector2, side: float) -> Vector2:
+	var a: Vector2 = hip
+	var b: Vector2 = knee
+	if q.y > knee.y:
+		a = knee
+		b = ankle
+	if b.y - a.y < 1.0 or q.y < a.y or q.y > b.y:
+		return q
+	var t: float = (q.y - a.y) / (b.y - a.y)
+	var surf: float = lerpf(a.x, b.x, t) + facing * side * 14.0 * k * float(build["width"])
+	if (q.x - surf) * facing * side < 0.0:
+		q.x = surf
+	return q
+
+
+## The hem of each trouser leg is a weight on a spring: it trails the ankle, swings past it when the
+## foot stops, and hangs under a raised leg.
+func _hem_step(ts: float) -> void:
+	if hems.size() < 2:
+		return
+	var grav: float = 0.12 if water else 0.4
+	var drag: float = pow(0.86 if water else 0.8, ts)
+	for i in 2:
+		var hm: Dictionary = hems[i]
+		var knee: Vector2 = kn_f if i == 0 else kn_b
+		var ankle: Vector2 = ft_f if i == 0 else ft_b
+		var target: Vector2 = ankle + (ankle - knee).normalized() * 3.0 * k
+		var pos: Vector2 = hm["pos"]
+		var vel: Vector2 = hm["vel"]
+		vel = vel * drag + ((target - pos) * 0.16 + Vector2(0, grav)) * ts
+		pos += vel * ts
+		var reach: float = (shin + 6.0) * k
+		var dk: Vector2 = pos - knee
+		if dk.length() > reach:
+			pos = knee + dk.normalized() * reach
+		if pos.y > ground - 1.5:
+			pos.y = ground - 1.5
+			vel.y = minf(vel.y, 0.0)
+		hm["pos"] = pos
+		hm["vel"] = vel
 
 
 func _chain_step(c: Dictionary, anchor: Vector2, ts: float, gust: float) -> void:
@@ -589,9 +697,9 @@ const ANATOMY := {
 		"shin": [Vector3(0, 5.3, 4.9), Vector3(0.12, 4.8, 5.8), Vector3(0.3, 4.2, 6.8), Vector3(0.55, 3.4, 4.8), Vector3(0.82, 2.6, 2.9), Vector3(1, 2.7, 2.8)],
 		"upper": [Vector3(0, 6.2, 6), Vector3(0.14, 6.8, 6.2), Vector3(0.35, 5.6, 5), Vector3(0.55, 5.6, 4.8), Vector3(0.8, 4.2, 3.9), Vector3(1, 3.6, 3.4)],
 		"fore": [Vector3(0, 3.6, 3.4), Vector3(0.22, 4.6, 4.4), Vector3(0.6, 3.3, 3.2), Vector3(0.88, 2.4, 2.4), Vector3(1, 2.3, 2.3)],
-		"neck": [Vector3(0, 4.8, 5.8), Vector3(0.5, 4.2, 5), Vector3(1, 4.2, 4.6)],
-		"torso": [Vector3(-9, 6, 7.5), Vector3(0, 9, 12), Vector3(9, 9, 11.5), Vector3(20, 8.2, 8.2), Vector3(31, 9, 8.8),
-			Vector3(39, 11.2, 10.5), Vector3(46, 11.2, 11.5), Vector3(53, 9.2, 11.5), Vector3(58, 6.8, 9), Vector3(61, 5.4, 6.8), Vector3(64, 4.8, 5.8)],
+		"neck": [Vector3(0, 4.6, 5.6), Vector3(0.5, 3.8, 4.4), Vector3(1, 3.9, 4.2)],
+		"torso": [Vector3(-9, 6, 8), Vector3(0, 9, 12.6), Vector3(9, 8.6, 11.6), Vector3(20, 7.0, 7.4), Vector3(28, 7.6, 7.6),
+			Vector3(36, 10.6, 9.6), Vector3(42, 11.4, 10.4), Vector3(48, 9.6, 11.2), Vector3(54, 8.0, 10.8), Vector3(58, 6.2, 8.6), Vector3(61, 4.8, 6.4), Vector3(64, 4.2, 5.4)],
 		"head": [Vector2(-1, -12.8), Vector2(4, -12), Vector2(7.2, -8.6), Vector2(7.9, -5.2), Vector2(7.5, -3), Vector2(7.7, -1.5), Vector2(8.7, 0.4),
 			Vector2(9.2, 1), Vector2(8.7, 1.9), Vector2(7.7, 2.4), Vector2(8, 3.4), Vector2(7.6, 4.4), Vector2(8, 5.3), Vector2(7.3, 6.4), Vector2(7.4, 7.6),
 			Vector2(6.6, 9), Vector2(4.6, 9.8), Vector2(1.5, 9), Vector2(-2, 8), Vector2(-5, 6.4), Vector2(-9.6, 3), Vector2(-11.6, -2.8), Vector2(-10, -9), Vector2(-5.6, -12.3)],
@@ -627,6 +735,13 @@ const HAIR_CAP := [Vector2(-3, -13.8), Vector2(3, -13.4), Vector2(7.6, -10.2), V
 ## locks carry it on to the shoulders. Smoothed from a few control points.
 const HAIR_SLEEK := [Vector2(-3.0, -14.8), Vector2(-1.67, -15.04), Vector2(-0.33, -15.25), Vector2(1.0, -15.3), Vector2(2.37, -15.17), Vector2(3.74, -14.88), Vector2(5.0, -14.4), Vector2(6.14, -13.67), Vector2(7.17, -12.76), Vector2(8.0, -11.8), Vector2(8.57, -10.82), Vector2(8.93, -9.8), Vector2(9.2, -8.8), Vector2(9.39, -7.83), Vector2(9.49, -6.88), Vector2(9.5, -6.0), Vector2(9.45, -5.11), Vector2(9.33, -4.29), Vector2(9.1, -3.8), Vector2(8.77, -3.84), Vector2(8.33, -4.22), Vector2(7.8, -4.6), Vector2(7.14, -4.87), Vector2(6.38, -5.15), Vector2(5.6, -5.4), Vector2(4.81, -5.67), Vector2(4.01, -5.93), Vector2(3.2, -6.0), Vector2(2.37, -5.88), Vector2(1.54, -5.58), Vector2(0.8, -5.0), Vector2(0.18, -4.06), Vector2(-0.36, -2.83), Vector2(-0.8, -1.5), Vector2(-1.1, -0.06), Vector2(-1.32, 1.5), Vector2(-1.6, 3.0), Vector2(-1.96, 4.46), Vector2(-2.39, 5.86), Vector2(-3.0, 7.0), Vector2(-3.86, 7.79), Vector2(-4.9, 8.32), Vector2(-6.0, 8.6), Vector2(-7.14, 8.65), Vector2(-8.34, 8.46), Vector2(-9.5, 8.0), Vector2(-10.63, 7.25), Vector2(-11.71, 6.24), Vector2(-12.6, 5.0), Vector2(-13.24, 3.46), Vector2(-13.7, 1.7), Vector2(-14.0, 0.0), Vector2(-14.14, -1.55), Vector2(-14.13, -3.05), Vector2(-14.0, -4.5), Vector2(-13.8, -5.92), Vector2(-13.49, -7.3), Vector2(-13.0, -8.6), Vector2(-12.28, -9.84), Vector2(-11.39, -11.0), Vector2(-10.4, -12.0), Vector2(-9.35, -12.81), Vector2(-8.21, -13.47), Vector2(-7.0, -14.0), Vector2(-5.71, -14.37), Vector2(-4.36, -14.6)]
 
+## Her hair pulled up into a high ponytail: volume at the crown, a soft fringe sweeping over the
+## brow, the line of the hair tight behind the ear and up off the nape.
+const HAIR_PULLED := [Vector2(-2.0, -14.8), Vector2(2.5, -14.6), Vector2(6.2, -12.6), Vector2(8.4, -9.6), Vector2(9.4, -6.6),
+	Vector2(9.0, -4.6), Vector2(7.8, -5.8), Vector2(6.0, -7.4), Vector2(3.6, -8.4), Vector2(1.0, -8.0), Vector2(-1.4, -6.2),
+	Vector2(-3.2, -3.2), Vector2(-5.2, 0.2), Vector2(-7.6, 3.0), Vector2(-10.4, 1.4), Vector2(-12.2, -2.6), Vector2(-12.4, -7.0),
+	Vector2(-10.6, -11.2), Vector2(-7.0, -14.0)]
+
 ## Curved outlines for the body; the blurred cast shadow only needs the key rows, which saves over
 ## half of the per-point script calls in the shadow pass. Built once per body and scale.
 static var lod_cache: Dictionary = {}
@@ -634,6 +749,7 @@ static var foot_tris: PackedInt32Array = Geometry2D.triangulate_polygon(PackedVe
 static var beard_tris: PackedInt32Array = Geometry2D.triangulate_polygon(PackedVector2Array(BEARD))
 static var crown_tris: PackedInt32Array = Geometry2D.triangulate_polygon(PackedVector2Array(CROWN))
 static var cap_tris: PackedInt32Array = Geometry2D.triangulate_polygon(PackedVector2Array(HAIR_CAP))
+static var pulled_tris: PackedInt32Array = Geometry2D.triangulate_polygon(PackedVector2Array(HAIR_PULLED))
 static var sleek_tris: PackedInt32Array = Geometry2D.triangulate_polygon(PackedVector2Array(HAIR_SLEEK))
 ## The cast shadow is blurred, so it takes every third hair point: that is two thirds fewer script calls.
 static var sleek_coarse: Array = _every_third(HAIR_SLEEK)
@@ -704,27 +820,31 @@ func _figure(back: Array, main: Array, lod: Dictionary) -> void:
 	var cap: int = lod["cap"]
 	var an: Dictionary = ANATOMY[build["body"]]
 	var extras: Array = build["extras"]
+	var g: Dictionary = build.get("garb", {})
 	# a rear-leg kick turns the hips over, so that leg comes through in front of the body
 	var rear_over: bool = _kicking(1)
 	if not rear_over:
 		_leg(back, hip_b, kn_b, ft_b, pitch_b, 1, lod, an)
 	_arm(back, sh_b, el_b, hand_b, holding and rear_grip, lod, an)
+	_sleeve(back, sh_b, el_b, hand_b, "cuff_b")
 	_cloth(back, "back", cap)
+	_coat(main)
 	_leg(main, hip_f, kn_f, ft_f, pitch_f, 0, lod, an)
 	if rear_over:
 		_leg(main, hip_b, kn_b, ft_b, pitch_b, 1, lod, an)
-	_torso(main, lod["torso"])
-	if "outfit" in extras:
-		_outfit(main, lod)
+	_torso(main, lod["torso"], float(g.get("pad", 0.0)) * k)
+	if g.has("sash"):
+		_sash(main, lod["torso"], float(g["sash"]))
 	_limb(main, chest.lerp(neck, 0.55), head + Vector2(-2.0 * facing, 7.5).rotated(head_ang) * head_k, lod["neck"])
+	if g.has("collar"):
+		_collar(main, float(g["collar"]))
 	_outline(main, an["head"], lods["head_tris"], head, head_ang, head_k)
 	if "hair_cap" in extras:
 		_outline(main, HAIR_CAP, cap_tris, head, head_ang, head_k)
-	if "hair_sleek" in extras:
-		if lod["joints"]:
-			_outline(main, HAIR_SLEEK, sleek_tris, head, head_ang, head_k)
-		else:
-			_outline(main, sleek_coarse, sleek_coarse_tris, head, head_ang, head_k)
+	if "hair_pulled" in extras:
+		_outline(main, HAIR_PULLED, pulled_tris, head, head_ang, head_k)
+		# the tie at the root of the ponytail
+		main.append(U.circle(_anchor("pony"), 3.0 * head_k, 8))
 	if "beard" in extras:
 		_outline(main, BEARD, beard_tris, head, head_ang, head_k)
 	if "crown" in extras:
@@ -733,31 +853,117 @@ func _figure(back: Array, main: Array, lod: Dictionary) -> void:
 		main.append(U.circle(head + Vector2(-5.0 * facing, -14.0).rotated(head_ang) * head_k, 3.4 * head_k, 8))
 	_cloth(main, "main", cap)
 	_arm(main, sh_f, el_f, hand_f, holding, lod, an)
+	_sleeve(main, sh_f, el_f, hand_f, "cuff_f")
 
 
-## Clothes that read in pure shadow, from the outline alone: a belt that breaks the waist line and a
-## short flared skirt. Its hem hangs from three cloth chains, so it swings and lifts with the hips.
-func _outfit(out: Array, lod: Dictionary) -> void:
-	var rows: PackedVector3Array = lod["torso"]
+## The skirt of a coat or robe: two hanging panels, front and back, joined at the waist. They are
+## cloth, so the hem flares on a turn, trails a lunge and settles after.
+func _coat(out: Array) -> void:
+	if not chains.has("coat_f"):
+		return
+	var fp: PackedVector2Array = chains["coat_f"]["pos"]
+	var bp: PackedVector2Array = chains["coat_b"]["pos"]
+	var af: Vector2 = _anchor("coat_f")
+	var ab: Vector2 = _anchor("coat_b")
+	# the top of the skirt is sewn to the body, so it starts as one solid band over the hips
+	var top_f: Vector2 = af
+	var top_b: Vector2 = ab
+	for i in fp.size():
+		var qf: Vector2 = fp[i]
+		var qb: Vector2 = bp[i]
+		# a panel is cloth, not a rope: its middle bellies out a little between the edges
+		out.append(PackedVector2Array([top_f, qf, qb, top_b]))
+		top_f = qf
+		top_b = qb
+	# the hem hangs in a shallow curve between the two panels, not a ruled line
+	var mid: Vector2 = top_f.lerp(top_b, 0.5) + Vector2(0, 3.0 * k)
+	out.append(PackedVector2Array([top_f, mid, top_b]))
+	# hip and seat fill, so the panels never show a gap at the waist
+	out.append(U.circle(pelvis.lerp(chest, 0.1), 13.0 * k * float(build["width"]), 10))
+
+
+## Wide pleated trousers: snug at the hip, loose past the knee, and a hem much wider than the ankle
+## that swings on its own.
+func _hakama(out: Array, hip: Vector2, knee: Vector2, ankle: Vector2, hem: Vector2, flare: float, fine: bool) -> void:
+	var wd: float = float(build["width"]) * k
+	var rows: Array = []
+	var dt: Vector2 = (knee - hip).normalized()
+	rows.append([hip, Vector2(dt.y, -dt.x), 13.5 * wd])
+	rows.append([hip.lerp(knee, 0.55), Vector2(dt.y, -dt.x), 13.5 * wd])
+	var ds: Vector2 = (hem - knee)
+	if ds.length_squared() < 0.01:
+		ds = ankle - knee
+	ds = ds.normalized()
+	var nk: Vector2 = (Vector2(dt.y, -dt.x) + Vector2(ds.y, -ds.x)).normalized()
+	rows.append([knee, nk, 13.0 * wd])
+	var swing: float = clampf((hem - ankle).length() / (12.0 * k), 0.0, 1.0)
+	var hw: float = (13.0 + 4.5 * flare) * wd * (1.0 + 0.15 * swing)
+	# cloth hangs: on a standing leg the hem stays level instead of turning with the shin
+	var level: float = clampf(ds.y, 0.0, 1.0) * 0.85
+	var nh: Vector2 = Vector2(ds.y, -ds.x).lerp(Vector2(1.0, 0.0), level).normalized()
+	var steps: int = 3 if fine else 1
+	for j in range(1, steps + 1):
+		var u: float = float(j) / steps
+		# the leg belongs to the knee at first, then to the hanging hem
+		var c: Vector2 = knee.lerp(ankle, u).lerp(knee.lerp(hem, u), u)
+		rows.append([c, Vector2(ds.y, -ds.x).lerp(nh, u).normalized(), lerpf(13.0 * wd, hw, u * u)])
+	var pf := Vector2.ZERO
+	var pb := Vector2.ZERO
+	for i in rows.size():
+		var r: Array = rows[i]
+		var qf: Vector2 = r[0] + r[1] * r[2]
+		var qb: Vector2 = r[0] - r[1] * r[2]
+		if i > 0:
+			out.append(PackedVector2Array([pf, qf, qb, pb]))
+		pf = qf
+		pb = qb
+	# soft corners: the hem rolls under instead of ending in two points
+	out.append(U.capsule(pf, pb, 2.6 * wd, 2.6 * wd, 3))
+	out.append(U.circle(knee, 13.0 * wd, 10))
+
+
+## A kimono sleeve: wider than the arm, and a bag of cloth hanging under the forearm.
+func _sleeve(out: Array, shoulder: Vector2, elbow: Vector2, hand: Vector2, key: String) -> void:
+	var g: Dictionary = build.get("garb", {})
+	var r: float = float(g.get("sleeve_r", 0.0)) * k
+	if r > 0.0:
+		var cuff: Vector2 = elbow.lerp(hand, 0.72)
+		out.append(U.capsule(shoulder, elbow, r * 1.08, r, 4))
+		out.append(U.capsule(elbow, cuff, r, r * 0.8, 4))
+	if not chains.has(key):
+		return
+	var pos: PackedVector2Array = chains[key]["pos"]
+	var a: Vector2 = _anchor(key)
+	var root: Vector2 = elbow.lerp(shoulder, 0.25)
+	# fanned from the elbow, so the bag is one smooth sail between the arm and its hanging edge
+	var prev: Vector2 = a
+	for i in pos.size():
+		out.append(PackedVector2Array([root, prev, pos[i]]))
+		prev = pos[i]
+	out.append(PackedVector2Array([root, prev, elbow.lerp(shoulder, 0.6)]))
+
+
+## A sash wound twice round the waist: it cinches the line between ribs and hips.
+func _sash(out: Array, rows: PackedVector3Array, width: float) -> void:
 	var d: Vector2 = (chest - pelvis).normalized()
 	var n := Vector2(-d.y * facing, d.x * facing)
-	var low: Vector2 = pelvis + d * 4.0 * k
-	var w0: Vector2 = _depth_at(rows, 4.0 * k)
-	var high: Vector2 = pelvis + d * 13.0 * k
-	var w1: Vector2 = _depth_at(rows, 13.0 * k)
-	out.append(PackedVector2Array([low + n * (w0.x + 0.7), high + n * (w1.x + 0.7), high - n * (w1.y + 0.7), low - n * (w0.y + 0.7)]))
-	var wf: Vector2 = low + n * (w0.x + 0.4)
-	var wb: Vector2 = low - n * (w0.y + 0.4)
-	var hf: Vector2 = _hem("hem_f")
-	var hm: Vector2 = _hem("hem_m")
-	var hb: Vector2 = _hem("hem_b")
-	out.append(PackedVector2Array([wf, hf, hm, low]))
-	out.append(PackedVector2Array([low, hm, hb, wb]))
+	var lo: float = 9.0 * k
+	var hi: float = lo + width * k
+	var w0: Vector2 = _depth_at(rows, lo)
+	var w1: Vector2 = _depth_at(rows, hi)
+	var pad: float = float(build["garb"].get("pad", 0.0)) * k + 0.8
+	var c0: Vector2 = pelvis + d * lo
+	var c1: Vector2 = pelvis + d * hi
+	out.append(PackedVector2Array([c0 + n * (w0.x + pad), c1 + n * (w1.x + pad), c1 - n * (w1.y + pad), c0 - n * (w0.y + pad)]))
 
 
-func _hem(key: String) -> Vector2:
-	var pos: PackedVector2Array = chains[key]["pos"]
-	return pos[pos.size() - 1]
+## The crossed collar of a robe, standing a little off the neck at the back.
+func _collar(out: Array, size: float) -> void:
+	var d: Vector2 = (neck - chest).normalized()
+	var n := Vector2(-d.y * facing, d.x * facing)
+	var base: Vector2 = chest.lerp(neck, 0.35)
+	out.append(PackedVector2Array([base - n * 7.5 * k, base - n * (6.0 - size) * k + d * 7.0 * k,
+		base + d * 3.0 * k, base + n * 6.0 * k]))
 
 
 ## Limb outline depth at position `t` along the bone.
@@ -840,7 +1046,7 @@ func _limb(out: Array, a: Vector2, b: Vector2, rows: PackedVector3Array) -> void
 		pb = qb
 
 
-func _torso(out: Array, rows: PackedVector3Array) -> void:
+func _torso(out: Array, rows: PackedVector3Array, pad: float = 0.0) -> void:
 	var d: Vector2 = (chest - pelvis).normalized()
 	var n := Vector2(-d.y * facing, d.x * facing)
 	var up: Vector2 = (neck - chest).normalized()
@@ -854,8 +1060,8 @@ func _torso(out: Array, rows: PackedVector3Array) -> void:
 			c = pelvis + (chest - pelvis) * (row.x / top)
 		else:
 			c = chest + up * (row.x - top)
-		var qf: Vector2 = c + n * row.y
-		var qb: Vector2 = c - n * row.z
+		var qf: Vector2 = c + n * (row.y + pad)
+		var qb: Vector2 = c - n * (row.z + pad)
 		if i > 0:
 			out.append(PackedVector2Array([pf, qf, qb, pb]))
 		pf = qf
@@ -869,10 +1075,10 @@ func _leg(out: Array, hip: Vector2, knee: Vector2, ankle: Vector2, pitch: float,
 		out.append(U.circle(knee, float(an["knee_r"]) * wd, 10))
 	_limb(out, hip, knee, lod["thigh"])
 	_limb(out, knee, ankle, lod["shin"])
-	# the top of a thigh-high boot, a small step in the outline
-	if "outfit" in build["extras"]:
-		_band(out, hip, knee, lod["thigh"], 0.72, 0.76, 0.35)
 	_foot(out, ankle, pitch, i)
+	var g: Dictionary = build.get("garb", {})
+	if g.has("hakama") and hems.size() == 2:
+		_hakama(out, hip, knee, ankle, hems[i]["pos"], float(g["hakama"]), lod["joints"])
 
 
 ## The forearm ends at the wrist; the palm then widens into a fist wrapped around the grip with

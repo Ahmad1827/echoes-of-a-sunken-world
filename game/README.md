@@ -51,8 +51,8 @@ Open this `game/` folder in the [Godot 4.7 editor](https://godotengine.org/downl
 
 | File | What it controls |
 | --- | --- |
-| `scripts/rig.gd` | Skeleton, IK, foot planting, cloth (hair, skirt, capes), ragdoll, Maren's silhouette clothes (`_outfit`), and the anatomical silhouette (`ANATOMY`, `HAIR_SLEEK`, ...; 1 unit = 1 cm) |
-| `scripts/builds.gd` | Every fighter's body, sword, stats and AI; story text; training drills; saved progress |
+| `scripts/rig.gd` | Skeleton, IK, foot planting, cloth (hair, ponytail, sashes, capes), garments (hakama `_hakama`, coat skirts `_coat`, sleeves `_sleeve`), ragdoll, and the anatomical silhouette (`ANATOMY`, `HAIR_PULLED`, ...; 1 unit = 1 cm) |
+| `scripts/builds.gd` | Every fighter's body, clothes (`garb`: hakama flare, coat length, sleeves, sash), sword, stats and AI; story text; training drills; saved progress |
 | `scripts/fighter.gd` | States, move timings (`MOVES`) and every key pose (`GUARD`, `BLOCK`, `ATTACKS`, Maren's techniques in `KICK_ART`, ...) |
 | `scripts/combat.gd` | Blade hit detection, parry, block, posture, clashes |
 | `scripts/ai.gd` | Opponent behaviour |

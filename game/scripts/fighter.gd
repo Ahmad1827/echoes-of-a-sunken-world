@@ -19,14 +19,14 @@ const MOVES := {
 ## hands over the forehead, blade up and back. Mid (chudan): hands a fist in front of the navel, the
 ## point at the other's throat. Low (gedan): hands at the hips, the point at the knee.
 const GUARD := [
-	{"hx": 14.0, "hy": -48.0, "sa": -2.05, "lean": 0.0, "py": 3.0},
-	{"hx": 34.0, "hy": 40.0, "sa": -0.42, "lean": 0.03, "py": 3.0},
-	{"hx": 30.0, "hy": 56.0, "sa": 0.3, "lean": 0.08, "py": 5.0},
+	{"hx": 14.0, "hy": -48.0, "sa": -2.05, "lean": 0.0, "py": 9.0, "bf": -42.0, "ff": 30.0},
+	{"hx": 34.0, "hy": 40.0, "sa": -0.42, "lean": 0.03, "py": 9.0, "bf": -42.0, "ff": 30.0},
+	{"hx": 30.0, "hy": 56.0, "sa": 0.3, "lean": 0.08, "py": 11.0, "bf": -42.0, "ff": 30.0},
 ]
 const BLOCK := [
-	{"hx": 20.0, "hy": -46.0, "sa": -0.2, "lean": -0.02, "py": 5.0, "bf": -32.0},
-	{"hx": 32.0, "hy": 14.0, "sa": -1.35, "lean": -0.01, "py": 6.0, "bf": -32.0},
-	{"hx": 30.0, "hy": 46.0, "sa": 1.1, "lean": 0.1, "py": 8.0, "bf": -32.0},
+	{"hx": 20.0, "hy": -46.0, "sa": -0.2, "lean": -0.02, "py": 11.0, "bf": -42.0, "ff": 30.0},
+	{"hx": 32.0, "hy": 14.0, "sa": -1.35, "lean": -0.01, "py": 12.0, "bf": -42.0, "ff": 30.0},
+	{"hx": 30.0, "hy": 46.0, "sa": 1.1, "lean": 0.1, "py": 14.0, "bf": -42.0, "ff": 30.0},
 ]
 
 ## [startup, active, recovery] key poses per guard line. Cuts come from the step and the hips: the
