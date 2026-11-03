@@ -692,6 +692,8 @@ func _separate() -> void:
 func _on_event(e: Dictionary) -> void:
 	var pos: Vector2 = e.get("pos", Vector2.ZERO)
 	stats[e["t"]] = int(stats.get(e["t"], 0)) + 1
+	if e["t"] == "windup":
+		stats["m_" + str(e["move"])] = int(stats.get("m_" + str(e["move"]), 0)) + 1
 	if game_type == "train" and mode == "fight":
 		_drill_event(e)
 	match e["t"]:
@@ -712,15 +714,26 @@ func _on_event(e: Dictionary) -> void:
 			sfx.play("dash", -10.0, 1.3)
 		"clash":
 			sfx.play("clash", 0.0, randf_range(0.95, 1.05))
-			fx.spark(pos, 50, stage.spark_color, 10.0)
+			fx.burst(pos, stage.spark_color, 1.3)
 			fx.bubbles(pos, 10, 1.4)
-			hitstop = 8.0
-			shake = 9.0
-			flash = 0.16
+			hitstop = 11.0
+			ts_slow = 0.4
+			slow_timer = 14.0
+			shake = 10.0
+			flash = 0.2
 			ca = 1.0
+		"grind":
+			sfx.play("block", -14.0, randf_range(1.3, 1.6))
+			fx.spark(pos, 6, stage.spark_color, 4.0)
+		"unbind":
+			sfx.play("parry" if e["won"] else "clash", -3.0, randf_range(0.9, 1.0))
+			fx.burst(pos, stage.spark_color, 0.8)
+			hitstop = 6.0
+			shake = 6.0
+			flash = 0.1
 		"parry":
 			sfx.play("parry", 0.0, randf_range(0.97, 1.03))
-			fx.spark(pos, 36, stage.spark_color, 8.0)
+			fx.burst(pos, stage.spark_color, 1.0)
 			hitstop = 7.0
 			ts_slow = 0.35
 			slow_timer = 12.0
@@ -730,8 +743,11 @@ func _on_event(e: Dictionary) -> void:
 			_banner_small("DEFLECTED")
 		"block":
 			sfx.play("block", -2.0, randf_range(0.9, 1.1))
-			fx.spark(pos, 14 if e["heavy"] else 8, stage.spark_color, 5.0)
-			hitstop = 5.0 if e["heavy"] else 3.0
+			if e["heavy"]:
+				fx.burst(pos, stage.spark_color, 0.6)
+			else:
+				fx.spark(pos, 16, stage.spark_color, 6.0)
+			hitstop = 7.0 if e["heavy"] else 4.0
 			shake = 4.0 if e["heavy"] else 2.0
 		"break":
 			sfx.play("break", 0.0)
@@ -746,7 +762,8 @@ func _on_event(e: Dictionary) -> void:
 			fx.spark(pos, 10, stage.spark_color, 5.0)
 			fx.bubbles(pos, 14 if heavy else 8, 1.6)
 			fx.cut(pos, Vector2(e["dir"], 0.55 if e["part"] != "head" else 0.2), 220.0 if heavy else 160.0)
-			hitstop = 9.0 if heavy else 6.0
+			# the blow lands and holds, so it reads
+			hitstop = 12.0 if heavy else 8.0
 			shake = 10.0 if heavy else 6.0
 			flash = 0.14
 			ca = 0.8

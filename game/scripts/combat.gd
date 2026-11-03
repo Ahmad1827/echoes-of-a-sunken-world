@@ -16,16 +16,25 @@ static func swept_blade(f: Fighter, k: float) -> Array:
 
 
 static func step(a: Fighter, b: Fighter, ev: Array) -> void:
-	if is_active(a) and is_active(b) and a.move_name != "kick" and b.move_name != "kick":
+	if a.state == "bind" or b.state == "bind":
+		_bind(a, b, ev)
+		return
+	# a cut that meets the other's blade, swinging or still raised for its own blow, is a clash
+	if (is_active(a) and _armed(b)) or (is_active(b) and _armed(a)):
 		for s in range(1, 5):
 			var sa: Array = swept_blade(a, s / 4.0)
 			var sb: Array = swept_blade(b, s / 4.0)
 			var r: Array = U.seg_seg(sa[0], sa[1], sb[0], sb[1])
-			if r[0] < 7.0:
+			if r[0] < 10.0:
 				_clash(a, b, (r[1] + r[2]) * 0.5, ev)
 				return
 	_strike(a, b, ev)
 	_strike(b, a, ev)
+
+
+## A blade that can meet another: in a cut or thrust that has not yet landed.
+static func _armed(f: Fighter) -> bool:
+	return f.state == "attack" and f.move_name != "kick" and not f.hit_done and f.phase != "recovery"
 
 
 static func _probe(def: Fighter, seg: Array, pad: float) -> Dictionary:
@@ -222,11 +231,44 @@ static func _blade_point(att: Fighter, def: Fighter, fallback: Vector2) -> Vecto
 	return (r[1] + r[2]) * 0.5 if float(r[0]) < 60.0 else fallback
 
 
+## Blades meeting in the air: a burst of sparks, then the two lock at the guards.
 static func _clash(a: Fighter, b: Fighter, pt: Vector2, ev: Array) -> void:
 	for f: Fighter in [a, b]:
 		f.hit_done = true
-		f.enter("recoil")
-		f.stun_len = 22.0
-		f.vx = -f.facing * 6.0
+		f.enter_bind()
+		f.vx = -f.facing * 2.0
 		f.rig.kick("sa", -10.0)
 	ev.append({"t": "clash", "pos": pt})
+
+
+## Settles a bind. The first to push wins it: the other is shoved off balance, open for a moment.
+## If nobody pushes, or both do at once, they break apart even.
+static func _bind(a: Fighter, b: Fighter, ev: Array) -> void:
+	if a.state != "bind" or b.state != "bind":
+		# the other was knocked out of it somehow: let this one go too
+		for f: Fighter in [a, b]:
+			if f.state == "bind":
+				f.enter("idle")
+		return
+	var pt: Vector2 = _blade_point(a, b, a.rig.chest.lerp(b.rig.chest, 0.5))
+	var winner: Fighter = null
+	if a.bind_push != b.bind_push:
+		winner = a if a.bind_push else b
+	elif a.st < a.stun_len:
+		return
+	if winner == null:
+		for f: Fighter in [a, b]:
+			f.enter("recoil")
+			f.stun_len = 16.0
+			f.vx = -f.facing * 7.0
+		ev.append({"t": "unbind", "pos": pt, "won": false})
+		return
+	var loser: Fighter = b if winner == a else a
+	winner.enter("idle")
+	winner.vx = winner.facing * 1.5
+	loser.enter("recoil")
+	loser.stun_len = 36.0
+	loser.vx = -loser.facing * 9.0
+	loser.rig.kick("lean", -6.0)
+	_add_posture(loser, 18.0, ev)
+	ev.append({"t": "unbind", "pos": pt, "won": true, "winner": winner.id})

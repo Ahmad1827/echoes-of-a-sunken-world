@@ -3,7 +3,7 @@ extends Node2D
 ## Particles and light effects in world space: sparks, ink spray and stains, dust, motes and sand,
 ## plus everything additive about the blades (glow, motion trails, glints, cut flashes).
 
-enum { SPARK, INK, STAIN, DUST, MOTE, SAND, SNOW, BUBBLE }
+enum { SPARK, INK, STAIN, DUST, MOTE, SAND, SNOW, BUBBLE, FLARE }
 
 var parts: Array = []
 var cuts: Array = []
@@ -87,6 +87,22 @@ func spark(pos: Vector2, n: int, col: Color, speed: float = 8.0) -> void:
 		parts.append({"k": SPARK, "p": pos, "v": v, "life": randf_range(12.0, 36.0), "max": 36.0, "c": col})
 
 
+## Steel on steel, the way it looks on film: a white flash at the contact, a firework spray of hot
+## fragments that arc and fall, and slower embers that hang and drift down after.
+func burst(pos: Vector2, col: Color, power: float = 1.0) -> void:
+	parts.append({"k": FLARE, "p": pos, "v": Vector2.ZERO, "life": 8.0, "max": 8.0, "r": 40.0 * power})
+	parts.append({"k": FLARE, "p": pos, "v": Vector2.ZERO, "life": 16.0, "max": 16.0, "r": 16.0 * power})
+	# white-hot at first, cooling to gold and orange as they fly
+	var hot := Color(2.4, 1.7, 0.9)
+	var ember := Color(1.6, 0.75, 0.25)
+	for i in int(80 * power):
+		var v: Vector2 = Vector2.from_angle(randf() * TAU) * randf_range(4.0, 17.0) * sqrt(power) + Vector2(0, -3.0)
+		parts.append({"k": SPARK, "p": pos, "v": v, "life": randf_range(22.0, 54.0), "max": 54.0, "c": hot, "w": 1.1, "hot": true})
+	for i in int(30 * power):
+		var v2: Vector2 = Vector2.from_angle(randf() * TAU) * randf_range(0.8, 5.0) + Vector2(0, -1.6)
+		parts.append({"k": SPARK, "p": pos, "v": v2, "life": randf_range(50.0, 100.0), "max": 100.0, "c": ember, "w": 1.0, "hot": true})
+
+
 func ink(pos: Vector2, n: int, dir: float) -> void:
 	for i in n:
 		var v := Vector2(dir * randf_range(1.0, 9.0) + randf_range(-1.0, 1.0), randf_range(-6.5, 1.5))
@@ -143,8 +159,10 @@ func update(ts: float) -> void:
 		var v: Vector2 = q["v"]
 		match q["k"]:
 			SPARK:
-				v.y += (0.06 if stage.water else 0.28) * ts
-				v *= pow(0.88 if stage.water else 0.95, ts)
+				# burst fragments are heavy and hot: they carry far and fall even under water
+				var hot: bool = q.has("hot")
+				v.y += (0.2 if hot else (0.06 if stage.water else 0.28)) * ts
+				v *= pow(0.955 if hot else (0.88 if stage.water else 0.95), ts)
 				if p.y > g and v.y > 0.0:
 					v.y *= -0.35
 					v.x *= 0.6
@@ -234,7 +252,16 @@ func _draw_add() -> void:
 			SPARK:
 				var v: Vector2 = q["v"]
 				var c: Color = q["c"]
-				L.draw_line(p, p - v * 2.4, Color(c.r, c.g, c.b, a), 1.8, true)
+				if q.has("hot"):
+					# cooling: white-gold to deep orange, the streak shortening as it slows
+					var cool: Color = c.lerp(Color(1.3, 0.45, 0.12), 1.0 - a)
+					L.draw_line(p, p - v * 1.6, Color(cool.r, cool.g, cool.b, minf(1.0, a * 1.5)), q["w"], true)
+				else:
+					L.draw_line(p, p - v * 2.4, Color(c.r, c.g, c.b, a), 1.8, true)
+			FLARE:
+				var fr: float = float(q["r"]) * (0.5 + 0.5 * a)
+				_disc(p, fr, Color(1.0, 0.75, 0.45, a * a * 0.28))
+				_disc(p, fr * 0.25, Color(2.2, 2.0, 1.7, a * a))
 			MOTE:
 				_disc(p, q["r"], Color(0.8, 0.86, 0.86, sin(a * PI) * 0.35))
 			BUBBLE:

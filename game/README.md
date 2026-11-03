@@ -16,6 +16,7 @@ Run `build/windows/EchoesOfASunkenWorld.exe`. It's a single file with nothing to
 | Thrust | I or T | numpad 5 | B / ○ |
 | Kick (breaks a guard) | U or R | numpad 4 | LB / L1 |
 | Dash | Space | numpad 0 | A / ✕ |
+| Spinning cut | dash, then light cut | | |
 | Pause | Esc | | Start |
 
 How the fight works:
@@ -26,6 +27,10 @@ How the fight works:
 - **Stamina.** Attacks and dashes cost stamina. When exhausted you move, swing and recover slower.
 - **Wounds.** Hits are detected on the actual blade. Head cuts deal the most damage and arm cuts the least, and a cut leg makes you limp.
 - **Feints and charges.** Press guard during a heavy's wind-up to feint it. Hold heavy to charge it.
+- **Clashes and binds.** When a cut meets the other's blade, swinging or raised for its own blow, the steel throws a burst of sparks and the two lock at the guards. Press any attack after the first beat to push: whoever pushes first shoves the other off balance and open. If neither pushes, they break apart even.
+- **Spinning cut.** Press light cut during a dash, or just after it, and the fighter turns all the way round and cuts wide out of the turn. The robe flares with it.
+- **Lunging thrust.** The thrust is a deep lunge held for a beat, the lead arm driving the point alone. It reaches far but leaves you stretched out.
+- **The men's rhythm.** Opponents hold a standoff just out of reach, then attack in bursts of two or three blows before backing out again.
 
 ## Modes
 

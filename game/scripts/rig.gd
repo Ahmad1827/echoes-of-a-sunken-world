@@ -65,6 +65,10 @@ var hip_h := HIP_H
 ## Which leg the kick pose drives: 0 = front, 1 = rear.
 var kick_leg := 0
 
+## A turn of the whole body about its own axis, in radians: 0 faces the opponent, PI shows the back,
+## TAU is all the way round. The silhouette is mirrored by cos(turn), the way a profile turns.
+var turn := 0.0
+
 var step_events := 0
 ## The foot that moved last: footwork takes turns, so one foot never skates past the other.
 var last_step := 1
@@ -142,6 +146,7 @@ func reset(x: float, gy: float, face: float) -> void:
 	facing = face
 	ragdoll = false
 	holding = true
+	turn = 0.0
 	kick_leg = 0
 	time = randf() * 100.0
 	for k in KEYS:
@@ -237,7 +242,8 @@ func _update_feet(ts: float, vel_x: float) -> void:
 				ft["from"] = ft["x"]
 				ft["to"] = desired + clampf(vel_x * dur * 1.4, -60.0, 60.0)
 				ft["dur"] = dur
-				ft["h"] = clampf(2.5 + absf(float(ft["to"]) - float(ft["from"])) * 0.09, 2.5, 9.0)
+				# sword footwork glides: the foot skims the floor, and in a dash it slides flat
+				ft["h"] = 0.6 if fast else clampf(1.2 + absf(float(ft["to"]) - float(ft["from"])) * 0.045, 1.2, 4.5)
 				last_step = i
 
 
@@ -813,7 +819,48 @@ func build_shapes() -> Dictionary:
 	var shadow: Array = []
 	_figure(shadow, shadow, lods["coarse"])
 	shadow.append_array(hilt)
+	if _turning():
+		for layer: Array in [back, main, shadow]:
+			_turn_polys(layer)
 	return {"back": back, "main": main, "shadow": shadow}
+
+
+func _turning() -> bool:
+	return absf(sin(turn * 0.5)) > 0.002 and not ragdoll
+
+
+## Mirrors the figure about the body's axis by cos(turn). Seen from the side, a body turning on the
+## spot is exactly this: its outline narrows, flips and widens again.
+func _turn_polys(polys: Array) -> void:
+	var cx: float = pelvis.x
+	var c: float = cos(turn)
+	# never a line: seen from the front a body is as wide as its shoulders
+	if absf(c) < 0.42:
+		c = 0.42 * (1.0 if c >= 0.0 else -1.0)
+	for j in polys.size():
+		var poly: PackedVector2Array = polys[j]
+		for i in poly.size():
+			poly[i].x = cx + (poly[i].x - cx) * c
+		polys[j] = poly
+
+
+## Throws the loose cloth outward, as a spin or a hard stop does: the robe panels open away from each
+## other and lift, the hems swing out, hair streams.
+func fling(amount: float) -> void:
+	for key: String in chains:
+		var c: Dictionary = chains[key]
+		var vel: PackedVector2Array = c["vel"]
+		var n: int = vel.size()
+		var side: float = -1.0 if key == "coat_b" or key.begins_with("pony") or key.begins_with("sash") else 1.0
+		if key.begins_with("cuff"):
+			side = 0.0
+		for i in n:
+			var u: float = float(i + 1) / n
+			vel[i] += Vector2(facing * side * amount * u, -absf(amount) * 0.45 * u)
+		c["vel"] = vel
+	for i in hems.size():
+		var hm: Dictionary = hems[i]
+		hm["vel"] = Vector2(hm["vel"]) + Vector2(facing * (1.0 if i == 0 else -1.0) * amount * 0.6, -absf(amount) * 0.2)
 
 
 func _figure(back: Array, main: Array, lod: Dictionary) -> void:
@@ -1002,6 +1049,13 @@ func _hilt() -> Array:
 ## A real blade: full width most of its length, a thick spine, a curve that follows the build, and
 ## an angled point (kissaki) instead of a needle.
 func blade_polys() -> Array:
+	var out: Array = _blade_polys()
+	if _turning():
+		_turn_polys(out)
+	return out
+
+
+func _blade_polys() -> Array:
 	var out: Array = []
 	var perp := Vector2(-sword_dir.y, sword_dir.x) * facing
 	var l: float = blade_base.distance_to(blade_tip)

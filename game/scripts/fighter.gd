@@ -11,9 +11,13 @@ const MAX_CHARGE := 34.0
 const MOVES := {
 	"light": {"startup": 15.0, "active": 5.0, "recovery": 15.0, "dmg": 16.0, "posture": 20.0, "stam": 12.0, "lunge": 3.5, "kind": "cut"},
 	"heavy": {"startup": 26.0, "active": 6.0, "recovery": 26.0, "dmg": 30.0, "posture": 42.0, "stam": 22.0, "lunge": 6.5, "kind": "cut"},
-	"thrust": {"startup": 17.0, "active": 5.0, "recovery": 20.0, "dmg": 20.0, "posture": 26.0, "stam": 15.0, "lunge": 9.0, "kind": "thrust"},
+	"thrust": {"startup": 17.0, "active": 7.0, "recovery": 24.0, "dmg": 20.0, "posture": 26.0, "stam": 15.0, "lunge": 9.0, "kind": "thrust"},
 	"kick": {"startup": 15.0, "active": 5.0, "recovery": 18.0, "dmg": 3.0, "posture": 34.0, "stam": 14.0, "lunge": 4.0, "kind": "kick"},
+	# dash, then light: the body turns all the way round and the blade comes out of the turn level
+	"spin": {"startup": 18.0, "active": 6.0, "recovery": 22.0, "dmg": 22.0, "posture": 30.0, "stam": 20.0, "lunge": 7.5, "kind": "cut"},
 }
+## Frames after a dash ends in which a light cut still turns into the spinning cut.
+const SPIN_LATE := 8.0
 
 ## Upright spine, soft knees, feet a shoulder and a half apart, weight between them. High (jodan):
 ## hands over the forehead, blade up and back. Mid (chudan): hands a fist in front of the navel, the
@@ -54,10 +58,18 @@ const ATTACKS := {
 		 {"hx": 50.0, "hy": 56.0, "sa": 0.22, "lean": 0.26, "py": 20.0, "px": 10.0, "ff": 60.0, "bf": -54.0},
 		 {"hx": 46.0, "hy": 56.0, "sa": 0.4, "lean": 0.2, "py": 18.0, "px": 8.0, "ff": 58.0, "bf": -52.0}],
 	],
+	# a deep lunge held for a beat: the front knee over the foot, the back leg long, and the lead
+	# arm driving the point alone while the other hand lets go
 	"thrust": [
-		[{"hx": 12.0, "hy": 36.0, "sa": 0.02, "lean": -0.05, "py": 6.0, "bf": -38.0, "ff": 20.0},
-		 {"hx": 66.0, "hy": 20.0, "sa": -0.02, "lean": 0.2, "py": 14.0, "px": 12.0, "ff": 64.0, "bf": -56.0},
-		 {"hx": 56.0, "hy": 24.0, "sa": 0.05, "lean": 0.15, "py": 12.0, "px": 10.0, "ff": 60.0, "bf": -52.0}],
+		[{"hx": 4.0, "hy": 34.0, "sa": 0.0, "lean": -0.06, "py": 14.0, "bf": -46.0, "ff": 26.0},
+		 {"hx": 76.0, "hy": 16.0, "sa": -0.04, "lean": 0.26, "py": 24.0, "px": 14.0, "ff": 80.0, "bf": -68.0},
+		 {"hx": 72.0, "hy": 18.0, "sa": 0.0, "lean": 0.24, "py": 23.0, "px": 13.0, "ff": 78.0, "bf": -66.0}],
+	],
+	# crouch with the blade drawn back level, turn, and cut wide out of the turn
+	"spin": [
+		[{"hx": -4.0, "hy": 36.0, "sa": 3.0, "lean": 0.14, "py": 20.0, "ff": 34.0, "bf": -42.0},
+		 {"hx": 56.0, "hy": 26.0, "sa": -0.1, "lean": 0.18, "py": 18.0, "px": 8.0, "ff": 62.0, "bf": -52.0},
+		 {"hx": 48.0, "hy": 32.0, "sa": 0.45, "lean": 0.14, "py": 16.0, "px": 6.0, "ff": 60.0, "bf": -50.0}],
 	],
 	# one kick per guard line: head kick, push kick, leg kick
 	"kick": [
@@ -143,6 +155,9 @@ const KICKS := [
 ]
 const SWEEP_AT := 2.0
 const SWEPT := {"hx": 20.0, "hy": 58.0, "sa": 1.5, "lean": 0.55, "py": 56.0, "ht": 0.3, "ff": 42.0, "bf": -44.0}
+## Blades locked at the guards, both pushing: hands high and close, the blade up across the other's.
+const BIND := {"hx": 26.0, "hy": 8.0, "sa": -1.05, "lean": 0.18, "py": 18.0, "ff": 40.0, "bf": -52.0}
+const BIND_LEN := 46.0
 const RECOIL := {"hx": 2.0, "hy": -44.0, "sa": -2.7, "lean": -0.28, "py": 6.0, "ht": -0.3, "bf": -46.0, "ff": 18.0}
 const HURT := {"hx": 26.0, "hy": 46.0, "sa": 0.8, "lean": -0.1, "py": 10.0, "ht": -0.12}
 const BROKEN := {"hx": 24.0, "hy": 56.0, "sa": 1.15, "lean": 0.38, "py": 18.0, "ht": 0.35, "ff": 28.0, "bf": -34.0}
@@ -196,6 +211,10 @@ var age := 0.0
 ## The technique being performed, empty for a plain kick, and how far each line's list has got.
 var kick_art: Dictionary = {}
 var kick_turn := [0, 0, 0]
+## In a bind: true once this fighter has pressed to win the shove.
+var bind_push := false
+## Frames since the last dash ended, for the spinning cut.
+var since_dash := 99.0
 
 var input := {"left": false, "right": false, "up": false, "down": false, "block": false, "heavy": false}
 var buf := {"light": 0.0, "heavy": 0.0, "thrust": 0.0, "kick": 0.0, "dash": 0.0}
@@ -220,6 +239,8 @@ func setup(i: int, px: float, gy: float, face: float) -> void:
 	opened = 0.0
 	kick_art = {}
 	kick_turn = [0, 0, 0]
+	bind_push = false
+	since_dash = 99.0
 	x = px
 	ground = gy
 	facing = face
@@ -252,6 +273,8 @@ func enter(s: String) -> void:
 	state = s
 	st = 0.0
 	if s != "attack":
+		rig.turn = 0.0
+	if s != "attack":
 		phase = ""
 		charging = false
 
@@ -265,6 +288,7 @@ func update(ts: float, op: Fighter, arena: Vector2) -> void:
 		return
 	age += ts
 	st += ts
+	since_dash += ts
 	for k: String in buf:
 		buf[k] = maxf(0.0, float(buf[k]) - ts)
 	_sync_prev()
@@ -302,8 +326,14 @@ func update(ts: float, op: Fighter, arena: Vector2) -> void:
 		"dash":
 			var k: float = st / 15.0
 			vx = dash_dir * facing * (11.0 if dash_dir > 0.0 else 9.5) * pow(maxf(0.0, 1.0 - k), 1.4)
-			if st >= 15.0:
+			if float(buf["light"]) > 0.0 and st > 3.0 and stamina >= 10.0:
+				buf["light"] = 0.0
+				_start("spin")
+			elif st >= 15.0:
 				enter("idle")
+				since_dash = 0.0
+		"bind":
+			_bind_update(ts, op)
 		"recoil", "hurt", "broken", "kicked", "blockstun", "deflect", "swept":
 			vx *= pow(0.84, ts)
 			if st >= stun_len:
@@ -338,7 +368,7 @@ func _free_update(ts: float, fwd: int, block_pressed: bool) -> void:
 	for name: String in ["light", "heavy", "thrust", "kick"]:
 		if float(buf[name]) > 0.0:
 			buf[name] = 0.0
-			_start(name)
+			_start("spin" if name == "light" and since_dash < SPIN_LATE else name)
 			return
 	if float(buf["dash"]) > 0.0 and stamina >= 12.0 and not exhausted:
 		buf["dash"] = 0.0
@@ -372,7 +402,7 @@ func _start(name: String) -> void:
 	move_name = name
 	move = mv
 	attack_line = line
-	if name == "thrust" or (name == "kick" and not stats["kick_lines"]):
+	if name == "thrust" or name == "spin" or (name == "kick" and not stats["kick_lines"]):
 		attack_line = MID
 	kick_art = {}
 	if name == "kick":
@@ -394,7 +424,7 @@ func _start(name: String) -> void:
 	attack_id += 1
 	enter("attack")
 	phase = "startup"
-	events.append({"t": "windup", "heavy": name == "heavy", "pos": rig.chest})
+	events.append({"t": "windup", "heavy": name == "heavy", "pos": rig.chest, "move": name})
 
 
 func _spend(amount: float) -> void:
@@ -407,6 +437,8 @@ func _spend(amount: float) -> void:
 
 func _attack_update(ts: float, block_pressed: bool) -> void:
 	vx *= pow(0.82, ts)
+	if move_name == "spin":
+		_spin_update(ts)
 	if phase == "startup":
 		# the run into a flying kick carries it across the gap
 		if kick_art.get("fly", false) and st > startup_eff * 0.32:
@@ -434,7 +466,7 @@ func _attack_update(ts: float, block_pressed: bool) -> void:
 				lunge *= float(stats.get("kick_lunge", 1.0))
 			vx += facing * lunge
 			hit_done = false
-			events.append({"t": "swing", "heavy": move_name == "heavy", "kind": move["kind"], "pos": rig.chest})
+			events.append({"t": "swing", "heavy": move_name == "heavy" or move_name == "spin", "kind": move["kind"], "pos": rig.chest})
 	elif phase == "active":
 		if st >= float(move["active"]):
 			phase = "recovery"
@@ -442,6 +474,44 @@ func _attack_update(ts: float, block_pressed: bool) -> void:
 	elif phase == "recovery":
 		if st >= float(move["recovery"]) * (1.15 if exhausted else 1.0):
 			enter("idle")
+
+
+## The turn of the spinning cut runs through the wind-up, fast in the middle, and the cloth is
+## thrown out by it.
+func _spin_update(ts: float) -> void:
+	if phase == "startup":
+		var u: float = clampf(st / maxf(startup_eff, 1.0), 0.0, 1.0)
+		var e: float = u * u * (3.0 - 2.0 * u)
+		rig.turn = TAU * e
+		vx = maxf(vx * facing, 3.0) * facing
+		rig.fling(1.1 * sin(PI * u) * ts)
+	else:
+		rig.turn = 0.0
+
+
+## Two blades locked: the fighters lean into each other at a fixed gap, the steel grinding. A press of
+## attack after the first beat is a push to win it; Combat settles who did.
+func _bind_update(ts: float, op: Fighter) -> void:
+	var gap: float = absf(op.x - x)
+	vx = facing * clampf((gap - 104.0) * 0.12, -2.0, 2.0) + sin(age * 0.5 + id) * 0.25
+	if st > 8.0:
+		for a: String in ["light", "heavy", "kick", "thrust"]:
+			if float(buf[a]) > 0.0:
+				buf[a] = 0.0
+				bind_push = true
+	if st > stun_len + 30.0:
+		enter("idle")
+		return
+	if int(st) % 7 == 0 and int(st - ts) % 7 != 0:
+		events.append({"t": "grind", "pos": rig.blade_base.lerp(rig.blade_tip, 0.35)})
+
+
+func enter_bind() -> void:
+	enter("bind")
+	bind_push = false
+	stun_len = BIND_LEN
+	rig.turn = 0.0
+	trail.clear()
 
 
 func remaining_startup() -> float:
@@ -501,6 +571,14 @@ func _apply_pose() -> void:
 			pose["lean"] = 0.14 if dash_dir > 0.0 else -0.08
 			pose["py"] = 10.0 if dash_dir > 0.0 else 8.0
 			stiff = 18.0
+		"bind":
+			pose = BIND
+			stiff = 22.0
+			damp = 0.8
+			if bind_push:
+				pose = BIND.duplicate()
+				pose["px"] = 8.0
+				pose["lean"] = 0.26
 		"recoil":
 			pose = RECOIL
 			stiff = 18.0
